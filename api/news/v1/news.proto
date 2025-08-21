@@ -1,0 +1,229 @@
+syntax = "proto3";
+
+package news.v1;
+
+option go_package = "gis/polygon/api/news/v1;pb";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+//import "google/api/httpbody.proto";
+
+// Структура вложения в новость
+message NewsAttachment {
+  string id = 1;
+  string url = 3;
+  string content_type = 4;
+  int64 size = 5;
+}
+
+// Основная структура новости
+message News {
+  string id = 1;
+  string title = 2;
+  string cover_url = 3; // URL обложки новости
+  string short_description = 4;
+  string content = 5;
+  bool is_published = 6;
+  google.protobuf.Timestamp published_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// Запрос списка новостей
+message GetNewsListRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  bool published_only = 3; // для клиентов всегда true
+}
+
+// Ответ со списком новостей
+message GetNewsListResponse {
+  repeated News news = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+// Запрос получения новости по ID
+message GetNewsRequest {
+  string id = 1;
+}
+
+// Ответ с новостью
+message GetNewsResponse {
+  News news = 1;
+}
+
+// Запрос создания новости
+message CreateNewsRequest {
+  string title = 1;
+  string short_description = 2;
+  string cover_url = 3; // URL обложки
+  string content = 4;
+}
+
+// Ответ создания новости
+message CreateNewsResponse {
+  News news = 1;
+}
+
+// Запрос обновления новости
+message UpdateNewsRequest {
+  string id = 1;
+  string title = 2;
+  string short_description = 3;
+  string cover_url = 4; // URL обложки
+  string content = 5;
+}
+
+// Ответ обновления новости
+message UpdateNewsResponse {
+  News news = 1;
+}
+
+// Запрос удаления новости
+message DeleteNewsRequest {
+  string id = 1;
+}
+
+// Запрос публикации новости
+message PublishNewsRequest {
+  string id = 1;
+}
+
+// Ответ публикации новости
+message PublishNewsResponse {
+  News news = 1;
+}
+
+// Запрос скрытия новости
+message UnpublishNewsRequest {
+  string id = 1;
+}
+
+// Ответ скрытия новости
+message UnpublishNewsResponse {
+  News news = 1;
+}
+
+// Запрос загрузки вложения
+message UploadAttachmentRequest {
+  string content_type = 2;
+  bytes content = 3;
+}
+
+// Ответ загрузки вложения
+message UploadAttachmentResponse {
+  NewsAttachment attachment = 1;
+}
+
+// Запрос удаления вложения
+message DeleteAttachmentRequest {
+  string attachment_id = 1;
+}
+
+// Запрос получения списка вложений
+message GetAttachmentsRequest {
+  repeated string attachment_ids = 1;
+}
+
+// Ответ со списком вложений
+message GetAttachmentsResponse {
+  repeated NewsAttachment attachments = 1;
+}
+
+// Сервис для клиентов
+service NewsClientService {
+  // Получить список опубликованных новостей
+  rpc GetNewsList(GetNewsListRequest) returns (GetNewsListResponse) {
+    option (google.api.http) = {
+      get: "/v1/news"
+    };
+  }
+
+  // Получить конкретную опубликованную новость
+  rpc GetNews(GetNewsRequest) returns (GetNewsResponse) {
+    option (google.api.http) = {
+      get: "/v1/news/{id}"
+    };
+  }
+}
+
+// Сервис для администраторов
+service NewsAdminService {
+  // Создать новость
+  rpc CreateNews(CreateNewsRequest) returns (CreateNewsResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/news"
+      body: "*"
+    };
+  }
+
+  // Обновить новость
+  rpc UpdateNews(UpdateNewsRequest) returns (UpdateNewsResponse) {
+    option (google.api.http) = {
+      put: "/v1/admin/news/{id}"
+      body: "*"
+    };
+  }
+
+  // Удалить новость
+  rpc DeleteNews(DeleteNewsRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/admin/news/{id}"
+    };
+  }
+
+  // Опубликовать новость
+  rpc PublishNews(PublishNewsRequest) returns (PublishNewsResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/news/{id}/publish"
+      body: "*"
+    };
+  }
+
+  // Скрыть новость
+  rpc UnpublishNews(UnpublishNewsRequest) returns (UnpublishNewsResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/news/{id}/unpublish"
+      body: "*"
+    };
+  }
+
+  // Получить список всех новостей (включая неопубликованные)
+  rpc GetAllNewsList(GetNewsListRequest) returns (GetNewsListResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/news"
+    };
+  }
+
+  // Получить любую новость (включая неопубликованную)
+  rpc GetAnyNews(GetNewsRequest) returns (GetNewsResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/news/{id}"
+    };
+  }
+
+  // Загрузить небольшое вложение напрямую
+//  rpc UploadAttachment(stream UploadFileRequest) returns (UploadAttachmentResponse) {
+//    option (google.api.http) = {
+//      post: "/v1/admin/attachments/upload"
+//      body: "*"
+//    };
+//  }
+
+  // Удалить вложение
+  rpc DeleteAttachment(DeleteAttachmentRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/admin/attachments/{attachment_id}"
+    };
+  }
+
+  // Получить информацию о вложениях
+  rpc GetAttachments(GetAttachmentsRequest) returns (GetAttachmentsResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/attachments/batch"
+      body: "*"
+    };
+  }
+}

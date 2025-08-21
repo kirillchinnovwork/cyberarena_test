@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  users:
+    build: services/users
+    container_name: users
+    environment:
+      - USERS_GRPC_ADDR=:50051
+
+  news:
+    build: services/news
+    container_name: news
+    environment:
+      - NEWS_GRPC_ADDR=:50052
+
+  gateway:
+    build: services/gateway
+    container_name: gateway
+    environment:
+      - USERS_GRPC_ADDR=users:50051
+      - NEWS_GRPC_ADDR=news:50052
+      - GATEWAY_HTTP_ADDR=:8080
+    depends_on:
+      - users
+      - news
+    ports:
+      - "8080:8080"

@@ -1,0 +1,9 @@
+go 1.24.6
+
+use (
+	./api
+	./services/gateway
+	./services/news
+	./services/users
+	.
+)

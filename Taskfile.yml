@@ -1,0 +1,62 @@
+version: '3'
+
+tasks:
+
+  build-internal:
+    internal: true
+    dir: '{{.USER_WORKING_DIR}}'
+    cmds:
+      - "CGO_ENABLED={{.CGO_ENABLED}} GOOS={{.GOOS}} GOARCH={{.GOARCH}} /bin/sh scripts/build_services.sh"
+
+  build:
+    vars:
+      CGO_ENABLED:
+        sh: go env CGO_ENABLED
+      GOOS:
+        sh: go env GOOS
+      GOARCH:
+        sh: go env GOARCH
+    cmds:
+      - task: build-internal
+        vars:
+          CGO_ENABLED: "{{.CGO_ENABLED}}"
+          GOOS: "{{.GOOS}}"
+          GOARCH: "{{.GOARCH}}"
+
+  build-linux:
+    cmds:
+      - task: build-internal
+        vars:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH:
+            sh: go env GOARCH
+
+  init:
+    dir: '{{.USER_WORKING_DIR}}'
+    cmds:
+      - "go install tool"
+      - "easyp mod update"
+      - "easyp mod vendor"
+      - "easyp generate"
+
+  up:
+    dir: '{{.USER_WORKING_DIR}}'
+    deps:
+      - "init"
+      - "build-linux"
+    dotenv:
+      - ".env"
+    preconditions:
+      - "test -f docker-compose.yml"
+    cmds:
+      - "docker compose up --build --remove-orphans --detach"
+
+  down:
+    dir: '{{.USER_WORKING_DIR}}'
+    dotenv:
+      - ".env"
+    preconditions:
+      - "test -f docker-compose.yml"
+    cmds:
+      - "docker compose down --volumes"

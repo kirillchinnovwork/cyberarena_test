@@ -1,0 +1,18 @@
+/api/**/*.pb.*
+
+/easyp_vendor/
+
+/services/*/bin/
+
+easyp.lock
+
+**/go.sum
+
+**/go.work.sum
+
+# Editor
+.vscode/
+.idea/
+
+# Mac
+.DS_Store
