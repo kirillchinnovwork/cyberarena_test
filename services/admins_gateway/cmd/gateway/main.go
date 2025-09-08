@@ -10,6 +10,7 @@ import (
 	newsv1 "gis/polygon/api/news/v1"
 	usersv1 "gis/polygon/api/users/v1"
 
+	"github.com/black-06/grpc-gateway-file"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -19,17 +20,29 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mux := runtime.NewServeMux()
+	mux := runtime.NewServeMux(
+		gatewayfile.WithFileIncomingHeaderMatcher(),
+		gatewayfile.WithFileForwardResponseOption(),
+		gatewayfile.WithHTTPBodyMarshaler(),
+	)
 
 	usersAddr := getEnv("USERS_GRPC_ADDR", "users:50051")
 	newsAddr := getEnv("NEWS_GRPC_ADDR", "news:50052")
 
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
-	if err := usersv1.RegisterUsersServiceHandlerFromEndpoint(ctx, mux, usersAddr, dialOpts); err != nil {
+	if err := usersv1.RegisterUsersClientServiceHandlerFromEndpoint(ctx, mux, usersAddr, dialOpts); err != nil {
 		log.Fatalf("register users handler: %v", err)
 	}
 	if err := newsv1.RegisterNewsClientServiceHandlerFromEndpoint(ctx, mux, newsAddr, dialOpts); err != nil {
+		log.Fatalf("register news handler: %v", err)
+	}
+
+	// TODO: эти штуки надо вынести в отдельный админский gateway
+	if err := usersv1.RegisterUsersAdminServiceHandlerFromEndpoint(ctx, mux, usersAddr, dialOpts); err != nil {
+		log.Fatalf("register users admin handler: %v", err)
+	}
+	if err := newsv1.RegisterNewsAdminServiceHandlerFromEndpoint(ctx, mux, newsAddr, dialOpts); err != nil {
 		log.Fatalf("register news handler: %v", err)
 	}
 
