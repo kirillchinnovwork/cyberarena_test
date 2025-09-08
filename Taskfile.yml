@@ -40,6 +40,7 @@ tasks:
       - "easyp mod vendor"
       - "easyp generate"
 
+  #TODO: как-то заставить его выполнять действия по порядку!!!
   up:
     dir: '{{.USER_WORKING_DIR}}'
     deps:
@@ -60,3 +61,14 @@ tasks:
       - "test -f docker-compose.yml"
     cmds:
       - "docker compose down --volumes"
+
+  clear:
+    desc: "Очистка сгенерированных файлов (.pb.*), vendor, бинарников и lock/sum файлов"
+    dir: '{{.USER_WORKING_DIR}}'
+    cmds:
+      - "find api -type f -name '*.pb.*' -delete 2>/dev/null || true"
+      - "rm -rf easyp_vendor"
+      - "rm -rf services/*/bin"
+      - "rm -f easyp.lock"
+      - "find . -type f -name 'go.sum' -delete 2>/dev/null || true"
+      - "find . -type f -name 'go.work.sum' -delete 2>/dev/null || true"

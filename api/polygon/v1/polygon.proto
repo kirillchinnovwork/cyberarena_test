@@ -1,0 +1,538 @@
+syntax = "proto3";
+
+package polygon.v1;
+
+import "api/users/v1/users.proto";
+import "google/api/annotations.proto";
+import "google/api/httpbody.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "gis/polygon/api/polygon/v1;pb";
+
+// CyberRange — сущность площадки.
+// description — общее описание; initial_data — исходные материалы; polygons — список доступных полигонов.
+message CyberRange {
+  string description = 1;
+  repeated InitialItem initial_data = 2;
+  repeated Polygon polygons = 3;
+}
+
+// InitialItem — элемент исходных материалов, доступных участникам.
+// id — идентификатор; name — название; description — описание; files_urls — URLs файлов.
+message InitialItem {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string files_urls = 4;
+  string user_id = 5; // если заполнено — элемент предназначен только указанному пользователю
+}
+
+// Polygon — сущность полигона (набор инцидентов).
+// cover_url — URL обложки; incidents — связанные инциденты.
+message Polygon {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string cover_url = 4;
+  repeated Incident incidents = 5;
+}
+
+// PolygonView — представление полигона для клиентских списков.
+// incidents — урезанные данные инцидентов (IncidentView).
+message PolygonView {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string cover_url = 4;
+  repeated IncidentView incidents = 5;
+}
+
+// Incident — полный инцидент с отчетами обеих команд и победителями.
+// red_reports / blue_reports — отчеты соответствующих команд; red_winner/blue_winner — победившие команды.
+message Incident {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated Report red_reports = 4;
+  repeated Report blue_reports = 5;
+  repeated Team red_winner = 6;
+  repeated Team blue_winner = 7;
+}
+
+// IncidentView — укороченное представление инцидента для отображения статусов.
+// red_report_status / blue_report_status — статусы отчетов; base_prize — базовый приз; blue_share_percent — доля синей.
+message IncidentView {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  ReportStatus red_report_status = 9;
+  ReportStatus blue_report_status = 10;
+  int64 base_prize = 11; // базовый приз (начисляется красной при принятии её отчета)
+  uint32 blue_share_percent = 12; // процент, уходящий синей при принятии её отчета
+}
+
+// Report — отчет команды по инциденту.
+// steps — последовательность шагов (ReportStep); time — длительность / отметка.
+message Report {
+  string id = 1;
+  IncidentView incident = 7;
+  Team team = 2;
+  repeated ReportStep steps = 3;
+  int32 time = 4;
+  ReportStatus status = 5;
+  string rejection_reason = 6; // причина отклонения (заполняется админом при REJECTED)
+}
+
+// ReportStep — шаг отчета с подробностями выполнения.
+// number — порядковый номер; target/source — цель и источник действия; result — итог.
+message ReportStep {
+  string id = 1;
+  uint32 number = 2;
+  string name = 3;
+  int32 time = 4;
+  string description = 5;
+  string target = 6;
+  string source = 7;
+  string result = 8;
+}
+
+// ReportAttachment — метаданные вложения отчета.
+// url — URL файла; content_type — MIME тип; size — размер в байтах.
+message ReportAttachment {
+  string id = 1;
+  string url = 2;
+  string content_type = 3;
+  int64 size = 4;
+}
+
+// UploadReportAttachmentResponse — ответ на загрузку вложения отчета.
+// attachment — метаданные загруженного файла.
+message UploadReportAttachmentResponse {
+  ReportAttachment attachment = 1;
+}
+
+// DownloadReportAttachmentRequest — запрос скачивания вложения отчета по идентификатору.
+message DownloadReportAttachmentRequest {
+  string id = 1;
+}
+
+// ---- Обложки полигонов ----
+// PolygonCoverMeta — метаданные загруженной обложки полигона.
+message PolygonCoverMeta {
+  string url = 1;
+  string content_type = 2;
+  int64 size = 3;
+}
+
+// UploadPolygonCoverResponse — ответ на загрузку обложки полигона.
+message UploadPolygonCoverResponse {
+  PolygonCoverMeta cover = 1;
+}
+
+// DownloadPolygonCoverRequest — запрос скачивания бинарного содержимого обложки.
+message DownloadPolygonCoverRequest {
+  string polygon_id = 1;
+}
+
+// UploadPolygonCoverRequest — запрос на загрузку обложки полигона.
+message UploadPolygonCoverRequest {
+  string polygon_id = 1;
+  google.api.HttpBody cover = 2;
+}
+
+// ReportStatus — статус проверки отчета судьями.
+enum ReportStatus {
+  REPORT_STATUS_UNSPECIFIED = 0; // не указан
+  REPORT_STATUS_PENDING = 1; // на проверке
+  REPORT_STATUS_ACCEPTED = 2; // принят
+  REPORT_STATUS_REJECTED = 3; // отклонен
+}
+
+// TeamType — тип команды в соревновании.
+enum TeamType {
+  TEAM_TYPE_RED = 0; // Красная команда (атака)
+  TEAM_TYPE_BLUE = 1; // Синяя команда (защита)
+}
+
+// Team — сущность команды.
+// type — тип (красная / синяя).
+message Team {
+  string id = 1;
+  string name = 2;
+  TeamType type = 3;
+  repeated users.v1.User users = 4;
+}
+
+// GetPolygonsResponse — список полигонов.
+// polygons — представления полигонов.
+message GetPolygonsResponse {
+  repeated PolygonView polygons = 1;
+}
+
+// GetIncidentsRequest — запрос инцидентов конкретного полигона.
+message GetIncidentsRequest {
+  string polygon_id = 1;
+}
+
+// GetIncidentsResponse — список инцидентов (представления).
+message GetIncidentsResponse {
+  repeated IncidentView incidents = 1;
+}
+
+// GetInitialItemsResponse — ответ с исходными материалами.
+message GetInitialItemsResponse {
+  repeated InitialItem initialItems = 1;
+}
+
+// SubmitReportRequest — сдача отчета по инциденту.
+// incident_id — id инцидента; steps — шаги отчета.
+message SubmitReportRequest {
+  string incident_id = 1;
+  repeated ReportStep steps = 3;
+}
+
+// EditReportRequest — редактирование ранее отклоненного отчёта.
+// report_id — идентификатор отчёта; steps — новая последовательность шагов (полная замена).
+message EditReportRequest {
+  string report_id = 1;
+  repeated ReportStep steps = 2;
+}
+
+// DeleteReportAttachmentRequest — удаление вложения отчета.
+message DeleteReportAttachmentRequest {
+  string attachment_id = 1;
+}
+
+// GetTeamsResponse — список команд.
+message GetTeamsResponse {
+  repeated Team teams = 1;
+}
+
+// GetTeamRequest — запрос команды по идентификатору.
+message GetTeamRequest {
+  string id = 1;
+}
+
+// TeamScore — агрегированные результаты команды.
+// submitted_incidents — всего отправлено; accepted_incidents — принято; prize_total — начисленные очки.
+message TeamScore {
+  string team_id = 1;
+  string team_name = 2;
+  uint32 submitted_incidents = 3;
+  uint32 accepted_incidents = 4;
+  int64 prize_total = 5;
+}
+
+// GetScoresResponse — скоринг всех команд.
+message GetScoresResponse {
+  repeated TeamScore scores = 1;
+}
+
+// ----- Административные запросы -----
+// CreateTeamRequest — создание команды.
+message CreateTeamRequest {
+  string name = 1;
+  TeamType type = 2;
+}
+
+// EditTeamRequest — редактирование команды (передавайте только изменяемые поля).
+message EditTeamRequest {
+  string id = 1;
+  string name = 2;
+  TeamType type = 3;
+}
+
+// DeleteTeamRequest — удаление команды.
+message DeleteTeamRequest {
+  string id = 1;
+}
+
+// AddUserToTeamRequest — добавление пользователя в команду.
+message AddUserToTeamRequest {
+  string team_id = 1;
+  string user_id = 2;
+}
+
+// RemoveUserFromTeamRequest — удаление пользователя из команды.
+message RemoveUserFromTeamRequest {
+  string team_id = 1;
+  string user_id = 2;
+}
+
+// CreatePolygonRequest — создание полигона.
+message CreatePolygonRequest {
+  string name = 1;
+  string description = 2;
+  string cover_url = 3;
+}
+
+// EditPolygonRequest — редактирование полигона.
+message EditPolygonRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string cover_url = 4;
+}
+
+// DeletePolygonRequest — удаление полигона.
+message DeletePolygonRequest {
+  string id = 1;
+}
+
+// CreateIncidentRequest — создание инцидента внутри полигона.
+message CreateIncidentRequest {
+  string polygon_id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+// EditIncidentRequest — редактирование инцидента.
+message EditIncidentRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+// DeleteIncidentRequest — удаление инцидента.
+message DeleteIncidentRequest {
+  string id = 1;
+}
+
+// ReviewReportRequest — админская проверка отчёта.
+// report_id — идентификатор; status — целевой статус (ACCEPTED / REJECTED); reason — причина при отклонении.
+message ReviewReportRequest {
+  string report_id = 1;
+  ReportStatus status = 2; // допускаются только ACCEPTED или REJECTED
+  string reason = 3; // обязательна при REJECTED
+}
+
+// GetUserTeamRequest — запрос команды пользователя (пользователь может состоять только в одной команде).
+message GetUserTeamRequest {
+  string user_id = 1;
+}
+
+// GetUserTeamResponse — ответ с единственной командой пользователя (отсутствует, если не состоит ни в одной).
+message GetUserTeamResponse {
+  Team team = 1;
+}
+
+message GetIncidentReportRequest {
+  string incident_id = 1;
+}
+
+message GetTeamReportsRequest {
+  string team_id = 1;
+}
+
+message GetTeamReportsResponse {
+  repeated Report reports = 1;
+}
+
+// PolygonClientService — публичные операции клиентского доступа к полигонам, инцидентам и отчетам.
+service PolygonClientService {
+  // GetInitialItems — получить список исходных материалов площадки.
+  rpc GetInitialItems(google.protobuf.Empty) returns (GetInitialItemsResponse) {
+    option (google.api.http) = {get: "/v1/initialItems"};
+  }
+
+  // GetPolygons — получить список полигонов.
+  rpc GetPolygons(google.protobuf.Empty) returns (GetPolygonsResponse) {
+    option (google.api.http) = {get: "/v1/polygons"};
+  }
+
+  // GetIncidents — получить инциденты выбранного полигона.
+  rpc GetIncidents(GetIncidentsRequest) returns (GetIncidentsResponse) {
+    option (google.api.http) = {get: "/v1/polygons/{polygon_id}/incidents"};
+  }
+
+  // SubmitReport — сдать отчет по инциденту.
+  rpc SubmitReport(SubmitReportRequest) returns (Report) {
+    option (google.api.http) = {
+      post: "/v1/incidents/{incident_id}/report"
+      body: "*"
+    };
+  }
+
+  // UploadReportAttachment — загрузить вложение отчета (stream form-data / bytes).
+  rpc UploadReportAttachment(stream google.api.HttpBody) returns (UploadReportAttachmentResponse) {
+    option (google.api.http) = {
+      post: "/v1/report/attachments/upload"
+      body: "*"
+    };
+  }
+
+  // DownloadReportAttachment — скачать бинарное содержимое вложения отчета.
+  rpc DownloadReportAttachment(DownloadReportAttachmentRequest) returns (stream google.api.HttpBody) {
+    option (google.api.http) = {get: "/v1/report/attachments/{id}"};
+  }
+
+  // DownloadPolygonCover — скачать бинарное содержимое обложки полигона.
+  rpc DownloadPolygonCover(DownloadPolygonCoverRequest) returns (stream google.api.HttpBody) {
+    option (google.api.http) = {get: "/v1/polygons/{polygon_id}/cover"};
+  }
+
+  // EditReport — отредактировать отклонённый отчёт (создаёт новую версию и переводит в PENDING).
+  rpc EditReport(EditReportRequest) returns (Report) {
+    option (google.api.http) = {
+      patch: "/v1/reports/{report_id}"
+      body: "*"
+    };
+  }
+
+  // GetIncidentReport - возвращает отчет команды текущего пользователя на инцидент по его id.
+  rpc GetIncidentReport(GetIncidentReportRequest) returns (Report) {
+    option (google.api.http) = {get: "/v1/incidents/{incident_id}/report"};
+  }
+
+  // GetUserTeam — получить команду, в которой состоит пользователь.
+  rpc GetUserTeam(GetUserTeamRequest) returns (GetUserTeamResponse) {
+    option (google.api.http) = {get: "/v1/users/{user_id}/team"};
+  }
+
+  // GetTeams - получить список команд.
+  rpc GetTeams(google.protobuf.Empty) returns (GetTeamsResponse) {
+    option (google.api.http) = {get: "/v1/teams"};
+  }
+}
+
+// PolygonAdminService — административные операции управления полигонами, инцидентами и командами.
+service PolygonAdminService {
+  // ----- Команды -----
+  // CreateTeam — создать команду.
+  rpc CreateTeam(CreateTeamRequest) returns (Team) {
+    option (google.api.http) = {
+      post: "/v1/admin/teams"
+      body: "*"
+    };
+  }
+  // EditTeam — отредактировать команду по id (частичное обновление переданных полей).
+  rpc EditTeam(EditTeamRequest) returns (Team) {
+    option (google.api.http) = {
+      patch: "/v1/admin/teams"
+      body: "*"
+    };
+  }
+  // DeleteTeam — удалить команду по id.
+  rpc DeleteTeam(DeleteTeamRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/teams/{id}"};
+  }
+  // AddUserToTeam — добавить пользователя в команду.
+  rpc AddUserToTeam(AddUserToTeamRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/v1/admin/teams/{team_id}/users/{user_id}"};
+  }
+  // RemoveUserFromTeam — удалить пользователя из команды.
+  rpc RemoveUserFromTeam(RemoveUserFromTeamRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/teams/{team_id}/users/{user_id}"};
+  }
+
+  // ----- Полигоны -----
+  // CreatePolygon — создать полигон.
+  rpc CreatePolygon(CreatePolygonRequest) returns (Polygon) {
+    option (google.api.http) = {
+      post: "/v1/admin/polygons"
+      body: "*"
+    };
+  }
+  // EditPolygon — отредактировать полигон по id (частичное обновление переданных полей).
+  rpc EditPolygon(EditPolygonRequest) returns (Polygon) {
+    option (google.api.http) = {
+      patch: "/v1/admin/polygons"
+      body: "*"
+    };
+  }
+  // DeletePolygon — удалить полигон по id.
+  rpc DeletePolygon(DeletePolygonRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/polygons/{id}"};
+  }
+
+  // ----- Инциденты -----
+  // CreateIncident — создать инцидент внутри указанного полигона.
+  rpc CreateIncident(CreateIncidentRequest) returns (Incident) {
+    option (google.api.http) = {
+      post: "/v1/admin/polygons/{polygon_id}/incidents"
+      body: "*"
+    };
+  }
+  // EditIncident — отредактировать инцидент по id.
+  rpc EditIncident(EditIncidentRequest) returns (Incident) {
+    option (google.api.http) = {
+      patch: "/v1/admin/incidents"
+      body: "*"
+    };
+  }
+  // DeleteIncident — удалить инцидент по id.
+  rpc DeleteIncident(DeleteIncidentRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/incidents/{id}"};
+  }
+
+  // UploadPolygonCover — загрузить (обновить) обложку конкретного полигона.
+  rpc UploadPolygonCover(UploadPolygonCoverRequest) returns (UploadPolygonCoverResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/polygons/{polygon_id}/cover/upload"
+      body: "cover"
+    };
+  }
+
+  // GetTeamReports — получить все отчёты конкретной команды по всем инцидентам.
+  rpc GetTeamReports(GetTeamReportsRequest) returns (GetTeamReportsResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/teams/{team_id}/reports" // path var соответствует полю запроса
+    };
+  }
+
+  // ReviewReport — подтвердить или отклонить отчёт.
+  rpc ReviewReport(ReviewReportRequest) returns (Report) {
+    option (google.api.http) = {
+      post: "/v1/admin/reports/{report_id}/review"
+      body: "*"
+    };
+  }
+
+  // ----- Исходные материалы -----
+  rpc UploadInitialItem(stream google.api.HttpBody) returns (UploadInitialItemResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/initial-items/upload"
+      body: "*"
+    };
+  }
+
+  // CreateInitialItem — создать элемент исходных материалов (опционально для конкретного пользователя).
+  rpc CreateInitialItem(CreateInitialItemRequest) returns (InitialItem) {
+    option (google.api.http) = {
+      post: "/v1/admin/initial-items"
+      body: "*"
+    };
+  }
+  // EditInitialItem — отредактировать элемент исходных материалов.
+  rpc EditInitialItem(EditInitialItemRequest) returns (InitialItem) {
+    option (google.api.http) = {
+      patch: "/v1/admin/initial-items"
+      body: "*"
+    };
+  }
+  // DeleteInitialItem — удалить элемент исходных материалов.
+  rpc DeleteInitialItem(DeleteInitialItemRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/initial-items/{id}"};
+  }
+}
+
+// ----- Запросы управления InitialItem -----
+message CreateInitialItemRequest {
+  string name = 1;
+  string description = 2;
+  repeated string files_urls = 3;
+  string user_id = 4; // опционально: приватный для пользователя
+}
+message EditInitialItemRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string files_urls = 4;
+  string user_id = 5; // установить / снять (пустая строка = сделать публичным)
+}
+message DeleteInitialItemRequest {
+  string id = 1;
+}
+message UploadInitialItemResponse {
+  string url = 1;
+}

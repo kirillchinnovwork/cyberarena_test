@@ -21,7 +21,7 @@
   "paths": {
     "/v1/admin/attachments/batch": {
       "post": {
-        "summary": "Получить информацию о вложениях",
+        "summary": "GetAttachments — получить метаданные нескольких вложений по списку id.",
         "operationId": "NewsAdminService_GetAttachments",
         "responses": {
           "200": {
@@ -40,6 +40,7 @@
         "parameters": [
           {
             "name": "body",
+            "description": "GetAttachmentsRequest — пакетное получение метаданных вложений.",
             "in": "body",
             "required": true,
             "schema": {
@@ -54,7 +55,7 @@
     },
     "/v1/admin/attachments/upload": {
       "post": {
-        "summary": "Загрузить небольшое вложение напрямую",
+        "summary": "UploadAttachment — загрузить вложение (принимает в ключ file в form-data).",
         "operationId": "NewsAdminService_UploadAttachment",
         "responses": {
           "200": {
@@ -88,7 +89,7 @@
     },
     "/v1/admin/attachments/{attachmentId}": {
       "delete": {
-        "summary": "Удалить вложение",
+        "summary": "DeleteAttachment — удалить вложение по его идентификатору.",
         "operationId": "NewsAdminService_DeleteAttachment",
         "responses": {
           "200": {
@@ -120,7 +121,7 @@
     },
     "/v1/admin/news": {
       "get": {
-        "summary": "Получить список всех новостей (включая неопубликованные)",
+        "summary": "GetAllNewsList — получить список новостей (включая черновики) с параметрами пагинации.",
         "operationId": "NewsAdminService_GetAllNewsList",
         "responses": {
           "200": {
@@ -153,7 +154,6 @@
           },
           {
             "name": "publishedOnly",
-            "description": "для клиентов всегда true",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -164,7 +164,7 @@
         ]
       },
       "post": {
-        "summary": "Создать новость",
+        "summary": "CreateNews — создать новость (по умолчанию не опубликована).",
         "operationId": "NewsAdminService_CreateNews",
         "responses": {
           "200": {
@@ -183,6 +183,7 @@
         "parameters": [
           {
             "name": "body",
+            "description": "CreateNewsRequest — создание новой новости.\ntitle — заголовок; short_description — краткое описание; cover_url — URL обложки (опционально); content — содержимое (HTML/Markdown).",
             "in": "body",
             "required": true,
             "schema": {
@@ -197,7 +198,7 @@
     },
     "/v1/admin/news/{id}": {
       "get": {
-        "summary": "Получить любую новость (включая неопубликованную)",
+        "summary": "GetAnyNews — получить новость независимо от статуса публикации.",
         "operationId": "NewsAdminService_GetAnyNews",
         "responses": {
           "200": {
@@ -226,7 +227,7 @@
         ]
       },
       "delete": {
-        "summary": "Удалить новость",
+        "summary": "DeleteNews — удалить новость по id.",
         "operationId": "NewsAdminService_DeleteNews",
         "responses": {
           "200": {
@@ -256,7 +257,7 @@
         ]
       },
       "patch": {
-        "summary": "Обновить новость TODO:поменять импл. на патч",
+        "summary": "UpdateNews — частично обновить новость по id.",
         "operationId": "NewsAdminService_UpdateNews",
         "responses": {
           "200": {
@@ -295,7 +296,7 @@
     },
     "/v1/admin/news/{id}/publish": {
       "post": {
-        "summary": "Опубликовать новость",
+        "summary": "PublishNews — опубликовать новость (становится доступна клиентскому сервису).",
         "operationId": "NewsAdminService_PublishNews",
         "responses": {
           "200": {
@@ -334,7 +335,7 @@
     },
     "/v1/admin/news/{id}/unpublish": {
       "post": {
-        "summary": "Скрыть новость",
+        "summary": "UnpublishNews — снять новость с публикации.",
         "operationId": "NewsAdminService_UnpublishNews",
         "responses": {
           "200": {
@@ -373,7 +374,7 @@
     },
     "/v1/news": {
       "get": {
-        "summary": "Получить список опубликованных новостей",
+        "summary": "GetNewsList — получить список опубликованных (или всех, если published_only=false) новостей с пагинацией.",
         "operationId": "NewsClientService_GetNewsList",
         "responses": {
           "200": {
@@ -406,7 +407,6 @@
           },
           {
             "name": "publishedOnly",
-            "description": "для клиентов всегда true",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -419,6 +419,7 @@
     },
     "/v1/news/attachments/{id}": {
       "get": {
+        "summary": "DownloadAttachment — скачать бинарное содержимое вложения новости.",
         "operationId": "NewsClientService_DownloadAttachment",
         "responses": {
           "200": {
@@ -452,7 +453,7 @@
     },
     "/v1/news/{id}": {
       "get": {
-        "summary": "Получить конкретную опубликованную новость",
+        "summary": "GetNews — получить одну опубликованную новость по id.",
         "operationId": "NewsClientService_GetNews",
         "responses": {
           "200": {
@@ -485,11 +486,11 @@
   "definitions": {
     "NewsAdminServicePublishNewsBody": {
       "type": "object",
-      "title": "Запрос публикации новости"
+      "description": "PublishNewsRequest — публикация новости."
     },
     "NewsAdminServiceUnpublishNewsBody": {
       "type": "object",
-      "title": "Запрос скрытия новости"
+      "description": "UnpublishNewsRequest — снятие новости с публикации."
     },
     "NewsAdminServiceUpdateNewsBody": {
       "type": "object",
@@ -501,14 +502,13 @@
           "type": "string"
         },
         "coverUrl": {
-          "type": "string",
-          "title": "URL обложки"
+          "type": "string"
         },
         "content": {
           "type": "string"
         }
       },
-      "title": "Запрос обновления новости"
+      "description": "UpdateNewsRequest — частичное обновление новости по id.\nПередавайте только поля, которые требуется изменить."
     },
     "apiHttpBody": {
       "type": "object",
@@ -573,14 +573,13 @@
           "type": "string"
         },
         "coverUrl": {
-          "type": "string",
-          "title": "URL обложки"
+          "type": "string"
         },
         "content": {
           "type": "string"
         }
       },
-      "title": "Запрос создания новости"
+      "description": "CreateNewsRequest — создание новой новости.\ntitle — заголовок; short_description — краткое описание; cover_url — URL обложки (опционально); content — содержимое (HTML/Markdown)."
     },
     "v1CreateNewsResponse": {
       "type": "object",
@@ -589,7 +588,7 @@
           "$ref": "#/definitions/v1News"
         }
       },
-      "title": "Ответ создания новости"
+      "description": "CreateNewsResponse — ответ с созданной новостью."
     },
     "v1GetAttachmentsRequest": {
       "type": "object",
@@ -601,7 +600,7 @@
           }
         }
       },
-      "title": "Запрос получения списка вложений"
+      "description": "GetAttachmentsRequest — пакетное получение метаданных вложений."
     },
     "v1GetAttachmentsResponse": {
       "type": "object",
@@ -614,7 +613,7 @@
           }
         }
       },
-      "title": "Ответ со списком вложений"
+      "description": "GetAttachmentsResponse — ответ со списком вложений."
     },
     "v1GetNewsListResponse": {
       "type": "object",
@@ -639,7 +638,7 @@
           "format": "int32"
         }
       },
-      "title": "Ответ со списком новостей"
+      "description": "GetNewsListResponse — страница новостей с метаданными пагинации.\ntotal_count — общее количество подходящих новостей."
     },
     "v1GetNewsResponse": {
       "type": "object",
@@ -648,7 +647,7 @@
           "$ref": "#/definitions/v1News"
         }
       },
-      "title": "Ответ с новостью"
+      "description": "GetNewsResponse — ответ с данными новости."
     },
     "v1News": {
       "type": "object",
@@ -660,8 +659,7 @@
           "type": "string"
         },
         "coverUrl": {
-          "type": "string",
-          "title": "URL обложки новости"
+          "type": "string"
         },
         "shortDescription": {
           "type": "string"
@@ -681,7 +679,7 @@
           "format": "date-time"
         }
       },
-      "title": "Основная структура новости"
+      "description": "News — сущность новости с основными отображаемыми полями.\nis_published — признак публикации; published_at — время публикации; updated_at — время последнего изменения."
     },
     "v1NewsAttachment": {
       "type": "object",
@@ -700,7 +698,7 @@
           "format": "int64"
         }
       },
-      "title": "Структура вложения в новость"
+      "description": "NewsAttachment — метаданные вложения (файла), прикреплённого к новости.\nid — идентификатор вложения; url — публичный URL; content_type — MIME тип; size — размер в байтах."
     },
     "v1PublishNewsResponse": {
       "type": "object",
@@ -709,7 +707,7 @@
           "$ref": "#/definitions/v1News"
         }
       },
-      "title": "Ответ публикации новости"
+      "description": "PublishNewsResponse — ответ с опубликованной новостью."
     },
     "v1UnpublishNewsResponse": {
       "type": "object",
@@ -718,7 +716,7 @@
           "$ref": "#/definitions/v1News"
         }
       },
-      "title": "Ответ скрытия новости"
+      "description": "UnpublishNewsResponse — ответ с новостью после снятия с публикации."
     },
     "v1UpdateNewsResponse": {
       "type": "object",
@@ -727,7 +725,7 @@
           "$ref": "#/definitions/v1News"
         }
       },
-      "title": "Ответ обновления новости"
+      "description": "UpdateNewsResponse — ответ с обновлённой новостью."
     },
     "v1UploadAttachmentResponse": {
       "type": "object",
@@ -736,7 +734,7 @@
           "$ref": "#/definitions/v1NewsAttachment"
         }
       },
-      "title": "Ответ загрузки вложения"
+      "description": "UploadAttachmentResponse — ответ с метаданными загруженного вложения."
     }
   }
 }

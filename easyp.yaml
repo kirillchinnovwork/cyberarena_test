@@ -21,6 +21,8 @@ generate:
       out: .
       opts:
         paths: source_relative
+    - name: openapiv2
+      out: .
 breaking:
     ignore: []
     against_git_ref: ""

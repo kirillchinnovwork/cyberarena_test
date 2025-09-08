@@ -5,41 +5,105 @@ package users.v1;
 option go_package = "gis/polygon/api/users/v1;pb";
 
 import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/api/httpbody.proto";
 
+// User — сущность пользователя с базовыми отображаемыми полями.
 message User {
   string id = 1;
-  string email = 2;
-  string name = 3;
+  string name = 2;
+  string avatar_url = 3;
 }
 
+// GetUserRequest — запрос на получение одного пользователя по идентификатору.
 message GetUserRequest {
   string id = 1;
 }
 
-message GetUserResponse {
-  User user = 1;
-}
-
+// CreateUserRequest — запрос на создание нового пользователя.
+// name — отображаемое имя; avatar — бинарные данные аватара (опционально).
 message CreateUserRequest {
-  string email = 1;
+  string name = 1;
+  bytes avatar = 2;
+}
+
+// GetAllUsersRequest — параметры пагинации списка пользователей.
+// page — номер страницы начиная с 1; page_size — количество элементов на странице.
+message GetAllUsersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+// GetAllUsersResponse — ответ со списком пользователей и их данными.
+message GetAllUsersResponse {
+  repeated User users = 1;
+}
+
+// EditUserRequest — запрос на частичное обновление данных пользователя.
+// Передайте только те поля, которые требуется изменить.
+message EditUserRequest {
+  string id = 1;
   string name = 2;
+  bytes avatar = 3;
 }
 
-message CreateUserResponse {
-  User user = 1;
+// DeleteUserRequest — запрос на удаление пользователя по идентификатору.
+message DeleteUserRequest {
+  string id = 1;
 }
 
-service UsersService {
-  rpc GetUser(GetUserRequest) returns (GetUserResponse) {
+// UsersClientService — публичные операции, доступные конечным пользователям / фронтенду.
+service UsersClientService {
+  // GetUser — получить данные одного пользователя по его id.
+  rpc GetUser(GetUserRequest) returns (User) {
     option (google.api.http) = {
       get: "/v1/users/{id}"
     };
   }
 
-  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
+  // GetUserAvatar — получить бинарные данные аватара пользователя по его id.
+  rpc GetUserAvatar(GetUserRequest) returns (google.api.HttpBody) {
     option (google.api.http) = {
-      post: "/v1/users"
+      get: "/v1/users/{id}/avatar"
+    };
+  }
+
+  rpc GetCurrentUser(google.protobuf.Empty) returns (User) {
+    option (google.api.http) = {
+      get: "/v1/users/me"
+    };
+  }
+}
+
+// UsersAdminService — административные операции управления пользователями.
+service UsersAdminService {
+  // CreateUser — создать нового пользователя.
+  rpc CreateUser(CreateUserRequest) returns (User) {
+    option (google.api.http) = {
+      post: "/v1/admin/users"
       body: "*"
+    };
+  }
+
+  // GetAllUsers — получить страницу пользователей согласно параметрам пагинации.
+  rpc GetAllUsers(GetAllUsersRequest) returns (GetAllUsersResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/users"
+    };
+  }
+
+  // EditUser — изменить данные пользователя (частичное обновление).
+  rpc EditUser(EditUserRequest) returns (User) {
+    option (google.api.http) = {
+      patch: "/v1/admin/users"
+      body: "*"
+    };
+  }
+
+  // DeleteUser — удалить пользователя по id.
+  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/admin/users/{id}"
     };
   }
 }

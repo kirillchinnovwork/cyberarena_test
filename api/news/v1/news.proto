@@ -7,9 +7,10 @@ option go_package = "gis/polygon/api/news/v1;pb";
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
-//import "google/api/httpbody.proto";
+import "google/api/httpbody.proto";
 
-// Структура вложения в новость
+// NewsAttachment — метаданные вложения (файла), прикреплённого к новости.
+// id — идентификатор вложения; url — публичный URL; content_type — MIME тип; size — размер в байтах.
 message NewsAttachment {
   string id = 1;
   string url = 3;
@@ -17,11 +18,12 @@ message NewsAttachment {
   int64 size = 5;
 }
 
-// Основная структура новости
+// News — сущность новости с основными отображаемыми полями.
+// is_published — признак публикации; published_at — время публикации; updated_at — время последнего изменения.
 message News {
   string id = 1;
   string title = 2;
-  string cover_url = 3; // URL обложки новости
+  string cover_url = 3;
   string short_description = 4;
   string content = 5;
   bool is_published = 6;
@@ -29,14 +31,16 @@ message News {
   google.protobuf.Timestamp updated_at = 8;
 }
 
-// Запрос списка новостей
+// GetNewsListRequest — параметры пагинации и фильтрации списка новостей.
+// published_only — если true, возвращаются только опубликованные новости.
 message GetNewsListRequest {
   int32 page = 1;
   int32 page_size = 2;
-  bool published_only = 3; // для клиентов всегда true
+  bool published_only = 3;
 }
 
-// Ответ со списком новостей
+// GetNewsListResponse — страница новостей с метаданными пагинации.
+// total_count — общее количество подходящих новостей.
 message GetNewsListResponse {
   repeated News news = 1;
   int32 total_count = 2;
@@ -44,114 +48,127 @@ message GetNewsListResponse {
   int32 page_size = 4;
 }
 
-// Запрос получения новости по ID
+// GetNewsRequest — запрос одной новости по идентификатору.
 message GetNewsRequest {
   string id = 1;
 }
 
-// Ответ с новостью
+// GetNewsResponse — ответ с данными новости.
 message GetNewsResponse {
   News news = 1;
 }
 
-// Запрос создания новости
+// CreateNewsRequest — создание новой новости.
+// title — заголовок; short_description — краткое описание; cover_url — URL обложки (опционально); content — содержимое (HTML/Markdown).
 message CreateNewsRequest {
   string title = 1;
   string short_description = 2;
-  string cover_url = 3; // URL обложки
+  string cover_url = 3;
   string content = 4;
 }
 
-// Ответ создания новости
+// CreateNewsResponse — ответ с созданной новостью.
 message CreateNewsResponse {
   News news = 1;
 }
 
-// Запрос обновления новости
+// UpdateNewsRequest — частичное обновление новости по id.
+// Передавайте только поля, которые требуется изменить.
 message UpdateNewsRequest {
   string id = 1;
   string title = 2;
   string short_description = 3;
-  string cover_url = 4; // URL обложки
+  string cover_url = 4;
   string content = 5;
 }
 
-// Ответ обновления новости
+// UpdateNewsResponse — ответ с обновлённой новостью.
 message UpdateNewsResponse {
   News news = 1;
 }
 
-// Запрос удаления новости
+// DeleteNewsRequest — удаление новости по id.
 message DeleteNewsRequest {
   string id = 1;
 }
 
-// Запрос публикации новости
+// PublishNewsRequest — публикация новости.
 message PublishNewsRequest {
   string id = 1;
 }
 
-// Ответ публикации новости
+// PublishNewsResponse — ответ с опубликованной новостью.
 message PublishNewsResponse {
   News news = 1;
 }
 
-// Запрос скрытия новости
+// UnpublishNewsRequest — снятие новости с публикации.
 message UnpublishNewsRequest {
   string id = 1;
 }
 
-// Ответ скрытия новости
+// UnpublishNewsResponse — ответ с новостью после снятия с публикации.
 message UnpublishNewsResponse {
   News news = 1;
 }
 
-// Запрос загрузки вложения
+// UploadAttachmentRequest — запрос загрузки вложения (одиночный режим).
 message UploadAttachmentRequest {
-  string content_type = 2;
-  bytes content = 3;
+  google.api.HttpBody file = 1;
 }
 
-// Ответ загрузки вложения
+// UploadAttachmentResponse — ответ с метаданными загруженного вложения.
 message UploadAttachmentResponse {
   NewsAttachment attachment = 1;
 }
 
-// Запрос удаления вложения
+// DownloadAttachmentRequest — запрос скачивания вложения по id.
+message DownloadAttachmentRequest {
+  string id = 1;
+}
+
+// DeleteAttachmentRequest — удаление вложения по идентификатору.
 message DeleteAttachmentRequest {
   string attachment_id = 1;
 }
 
-// Запрос получения списка вложений
+// GetAttachmentsRequest — пакетное получение метаданных вложений.
 message GetAttachmentsRequest {
   repeated string attachment_ids = 1;
 }
 
-// Ответ со списком вложений
+// GetAttachmentsResponse — ответ со списком вложений.
 message GetAttachmentsResponse {
   repeated NewsAttachment attachments = 1;
 }
 
-// Сервис для клиентов
+// NewsClientService — публичные операции для конечных пользователей.
 service NewsClientService {
-  // Получить список опубликованных новостей
+  // GetNewsList — получить список опубликованных (или всех, если published_only=false) новостей с пагинацией.
   rpc GetNewsList(GetNewsListRequest) returns (GetNewsListResponse) {
     option (google.api.http) = {
       get: "/v1/news"
     };
   }
 
-  // Получить конкретную опубликованную новость
+  // GetNews — получить одну опубликованную новость по id.
   rpc GetNews(GetNewsRequest) returns (GetNewsResponse) {
     option (google.api.http) = {
       get: "/v1/news/{id}"
     };
   }
+
+  // DownloadAttachment — скачать бинарное содержимое вложения новости.
+  rpc DownloadAttachment(DownloadAttachmentRequest) returns (stream google.api.HttpBody) {
+    option (google.api.http) = {
+      get: "/v1/news/attachments/{id}"
+    };
+  }
 }
 
-// Сервис для администраторов
+// NewsAdminService — административные операции управления новостями и вложениями.
 service NewsAdminService {
-  // Создать новость
+  // CreateNews — создать новость (по умолчанию не опубликована).
   rpc CreateNews(CreateNewsRequest) returns (CreateNewsResponse) {
     option (google.api.http) = {
       post: "/v1/admin/news"
@@ -159,22 +176,22 @@ service NewsAdminService {
     };
   }
 
-  // Обновить новость
+  // UpdateNews — частично обновить новость по id.
   rpc UpdateNews(UpdateNewsRequest) returns (UpdateNewsResponse) {
     option (google.api.http) = {
-      put: "/v1/admin/news/{id}"
+      patch: "/v1/admin/news/{id}"
       body: "*"
     };
   }
 
-  // Удалить новость
+  // DeleteNews — удалить новость по id.
   rpc DeleteNews(DeleteNewsRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {
       delete: "/v1/admin/news/{id}"
     };
   }
 
-  // Опубликовать новость
+  // PublishNews — опубликовать новость (становится доступна клиентскому сервису).
   rpc PublishNews(PublishNewsRequest) returns (PublishNewsResponse) {
     option (google.api.http) = {
       post: "/v1/admin/news/{id}/publish"
@@ -182,7 +199,7 @@ service NewsAdminService {
     };
   }
 
-  // Скрыть новость
+  // UnpublishNews — снять новость с публикации.
   rpc UnpublishNews(UnpublishNewsRequest) returns (UnpublishNewsResponse) {
     option (google.api.http) = {
       post: "/v1/admin/news/{id}/unpublish"
@@ -190,36 +207,36 @@ service NewsAdminService {
     };
   }
 
-  // Получить список всех новостей (включая неопубликованные)
+  // GetAllNewsList — получить список новостей (включая черновики) с параметрами пагинации.
   rpc GetAllNewsList(GetNewsListRequest) returns (GetNewsListResponse) {
     option (google.api.http) = {
       get: "/v1/admin/news"
     };
   }
 
-  // Получить любую новость (включая неопубликованную)
+  // GetAnyNews — получить новость независимо от статуса публикации.
   rpc GetAnyNews(GetNewsRequest) returns (GetNewsResponse) {
     option (google.api.http) = {
       get: "/v1/admin/news/{id}"
     };
   }
 
-  // Загрузить небольшое вложение напрямую
-//  rpc UploadAttachment(stream UploadFileRequest) returns (UploadAttachmentResponse) {
-//    option (google.api.http) = {
-//      post: "/v1/admin/attachments/upload"
-//      body: "*"
-//    };
-//  }
+  // UploadAttachment — загрузить вложение (принимает в ключ file в form-data).
+  rpc UploadAttachment(stream google.api.HttpBody) returns (UploadAttachmentResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/attachments/upload"
+      body: "*"
+    };
+  }
 
-  // Удалить вложение
+  // DeleteAttachment — удалить вложение по его идентификатору.
   rpc DeleteAttachment(DeleteAttachmentRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {
       delete: "/v1/admin/attachments/{attachment_id}"
     };
   }
 
-  // Получить информацию о вложениях
+  // GetAttachments — получить метаданные нескольких вложений по списку id.
   rpc GetAttachments(GetAttachmentsRequest) returns (GetAttachmentsResponse) {
     option (google.api.http) = {
       post: "/v1/admin/attachments/batch"

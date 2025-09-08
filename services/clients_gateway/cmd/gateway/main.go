@@ -2,34 +2,74 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	authv1 "gis/polygon/api/auth/v1"
 	newsv1 "gis/polygon/api/news/v1"
+	polygonv1 "gis/polygon/api/polygon/v1"
 	usersv1 "gis/polygon/api/users/v1"
 
-	"github.com/black-06/grpc-gateway-file"
+	gatewayfile "github.com/black-06/grpc-gateway-file"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/rs/cors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+)
+
+type ctxKey string
+
+const (
+	userIDKey ctxKey = "userID"
+	teamIDKey ctxKey = "teamID"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	usersAddr := getEnv("USERS_GRPC_ADDR", "users:50051")
+	newsAddr := getEnv("NEWS_GRPC_ADDR", "news:50052")
+	polygonAddr := getEnv("POLYGON_GRPC_ADDR", "polygon:50054")
+	authAddr := getEnv("AUTH_GRPC_ADDR", "auth:50053")
+
+	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+
+	authConn, err := grpc.DialContext(ctx, authAddr, dialOpts...)
+	if err != nil {
+		log.Fatalf("dial auth: %v", err)
+	}
+	defer authConn.Close()
+	authClient := authv1.NewAuthClientServiceClient(authConn)
+
 	mux := runtime.NewServeMux(
 		gatewayfile.WithFileIncomingHeaderMatcher(),
 		gatewayfile.WithFileForwardResponseOption(),
 		gatewayfile.WithHTTPBodyMarshaler(),
+
+		runtime.WithMetadata(func(c context.Context, r *http.Request) metadata.MD {
+			md := metadata.MD{}
+			if uid, ok := r.Context().Value(userIDKey).(string); ok && uid != "" {
+				md.Append("x-user-id", uid)
+			}
+			if tid, ok := r.Context().Value(teamIDKey).(string); ok && tid != "" {
+				md.Append("x-team-id", tid)
+			}
+
+			if authz := r.Header.Get("Authorization"); authz != "" {
+				md.Append("authorization", authz)
+			}
+			if len(md) == 0 {
+				return nil
+			}
+			return md
+		}),
 	)
-
-	usersAddr := getEnv("USERS_GRPC_ADDR", "users:50051")
-	newsAddr := getEnv("NEWS_GRPC_ADDR", "news:50052")
-
-	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
 	if err := usersv1.RegisterUsersClientServiceHandlerFromEndpoint(ctx, mux, usersAddr, dialOpts); err != nil {
 		log.Fatalf("register users handler: %v", err)
@@ -37,21 +77,56 @@ func main() {
 	if err := newsv1.RegisterNewsClientServiceHandlerFromEndpoint(ctx, mux, newsAddr, dialOpts); err != nil {
 		log.Fatalf("register news handler: %v", err)
 	}
+	if err := polygonv1.RegisterPolygonClientServiceHandlerFromEndpoint(ctx, mux, polygonAddr, dialOpts); err != nil {
+		log.Fatalf("register polygon handler: %v", err)
+	}
+	if err := authv1.RegisterAuthClientServiceHandlerFromEndpoint(ctx, mux, authAddr, dialOpts); err != nil {
+		log.Fatalf("register auth handler: %v", err)
+	}
 
-	// TODO: эти штуки надо вынести в отдельный админский gateway
-	if err := usersv1.RegisterUsersAdminServiceHandlerFromEndpoint(ctx, mux, usersAddr, dialOpts); err != nil {
-		log.Fatalf("register users admin handler: %v", err)
-	}
-	if err := newsv1.RegisterNewsAdminServiceHandlerFromEndpoint(ctx, mux, newsAddr, dialOpts); err != nil {
-		log.Fatalf("register news handler: %v", err)
-	}
+	root := authMiddleware(authClient, mux)
 
 	httpAddr := getEnv("GATEWAY_HTTP_ADDR", ":8080")
-	srv := &http.Server{Addr: httpAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: httpAddr, Handler: cors.AllowAll().Handler(root), ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("gateway HTTP listening on %s", httpAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("gateway failed: %v", err)
 	}
+}
+
+func authMiddleware(authClient authv1.AuthClientServiceClient, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authz := r.Header.Get("Authorization")
+		if authz == "" {
+			// TODO: Закрыть эту хрень
+			next.ServeHTTP(w, r)
+			return
+		}
+		parts := strings.SplitN(authz, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
+			writeAuthError(w, http.StatusUnauthorized, "invalid_authorization_header")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		resp, err := authClient.ValidateToken(ctx, &authv1.ValidateTokenRequest{AccessToken: parts[1]})
+		if err != nil {
+			writeAuthError(w, http.StatusUnauthorized, "invalid_token")
+			return
+		}
+		ctx = context.WithValue(r.Context(), userIDKey, resp.GetUserId())
+		if resp.GetTeamId() != "" {
+			ctx = context.WithValue(ctx, teamIDKey, resp.GetTeamId())
+		}
+		r = r.WithContext(ctx)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeAuthError(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 func getEnv(k, def string) string {

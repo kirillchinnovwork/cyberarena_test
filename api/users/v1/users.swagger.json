@@ -21,6 +21,7 @@
   "paths": {
     "/v1/admin/users": {
       "get": {
+        "summary": "GetAllUsers — получить страницу пользователей согласно параметрам пагинации.",
         "operationId": "UsersAdminService_GetAllUsers",
         "responses": {
           "200": {
@@ -57,6 +58,7 @@
         ]
       },
       "post": {
+        "summary": "CreateUser — создать нового пользователя.",
         "operationId": "UsersAdminService_CreateUser",
         "responses": {
           "200": {
@@ -75,10 +77,11 @@
         "parameters": [
           {
             "name": "body",
+            "description": "CreateUserRequest — запрос на создание нового пользователя.\nname — отображаемое имя; avatar — бинарные данные аватара (опционально).",
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/v1CreateUserRequest"
+              "$ref": "#/definitions/usersv1CreateUserRequest"
             }
           }
         ],
@@ -87,6 +90,7 @@
         ]
       },
       "patch": {
+        "summary": "EditUser — изменить данные пользователя (частичное обновление).",
         "operationId": "UsersAdminService_EditUser",
         "responses": {
           "200": {
@@ -105,6 +109,7 @@
         "parameters": [
           {
             "name": "body",
+            "description": "EditUserRequest — запрос на частичное обновление данных пользователя.\nПередайте только те поля, которые требуется изменить.",
             "in": "body",
             "required": true,
             "schema": {
@@ -119,6 +124,7 @@
     },
     "/v1/admin/users/{id}": {
       "delete": {
+        "summary": "DeleteUser — удалить пользователя по id.",
         "operationId": "UsersAdminService_DeleteUser",
         "responses": {
           "200": {
@@ -148,8 +154,31 @@
         ]
       }
     },
+    "/v1/users/me": {
+      "get": {
+        "operationId": "UsersClientService_GetCurrentUser",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1User"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "UsersClientService"
+        ]
+      }
+    },
     "/v1/users/{id}": {
       "get": {
+        "summary": "GetUser — получить данные одного пользователя по его id.",
         "operationId": "UsersClientService_GetUser",
         "responses": {
           "200": {
@@ -177,9 +206,63 @@
           "UsersClientService"
         ]
       }
+    },
+    "/v1/users/{id}/avatar": {
+      "get": {
+        "summary": "GetUserAvatar — получить бинарные данные аватара пользователя по его id.",
+        "operationId": "UsersClientService_GetUserAvatar",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/apiHttpBody"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "UsersClientService"
+        ]
+      }
     }
   },
   "definitions": {
+    "apiHttpBody": {
+      "type": "object",
+      "properties": {
+        "contentType": {
+          "type": "string",
+          "description": "The HTTP Content-Type header value specifying the content type of the body."
+        },
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The HTTP request/response body as raw binary."
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          },
+          "description": "Application specific response metadata. Must be set in the first response\nfor streaming APIs."
+        }
+      },
+      "description": "Message that represents an arbitrary HTTP body. It should only be used for\npayload formats that can't be represented as JSON, such as raw binary or\nan HTML page.\n\n\nThis message can be used both in streaming and non-streaming API methods in\nthe request as well as the response.\n\nIt can be used as a top-level request field, which is convenient if one\nwants to extract parameters from either the URL or HTTP template into the\nrequest fields and also want access to the raw HTTP body.\n\nExample:\n\n    message GetResourceRequest {\n      // A unique request id.\n      string request_id = 1;\n\n      // The raw HTTP body is bound to this field.\n      google.api.HttpBody http_body = 2;\n\n    }\n\n    service ResourceService {\n      rpc GetResource(GetResourceRequest)\n        returns (google.api.HttpBody);\n      rpc UpdateResource(google.api.HttpBody)\n        returns (google.protobuf.Empty);\n\n    }\n\nExample with streaming methods:\n\n    service CaldavService {\n      rpc GetCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n      rpc UpdateCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n\n    }\n\nUse of this type only changes how the request and response bodies are\nhandled, all other features will continue to work unchanged."
+    },
     "protobufAny": {
       "type": "object",
       "properties": {
@@ -210,7 +293,7 @@
         }
       }
     },
-    "v1CreateUserRequest": {
+    "usersv1CreateUserRequest": {
       "type": "object",
       "properties": {
         "name": {
@@ -220,7 +303,8 @@
           "type": "string",
           "format": "byte"
         }
-      }
+      },
+      "description": "CreateUserRequest — запрос на создание нового пользователя.\nname — отображаемое имя; avatar — бинарные данные аватара (опционально)."
     },
     "v1EditUserRequest": {
       "type": "object",
@@ -235,7 +319,8 @@
           "type": "string",
           "format": "byte"
         }
-      }
+      },
+      "description": "EditUserRequest — запрос на частичное обновление данных пользователя.\nПередайте только те поля, которые требуется изменить."
     },
     "v1GetAllUsersResponse": {
       "type": "object",
@@ -247,7 +332,8 @@
             "$ref": "#/definitions/v1User"
           }
         }
-      }
+      },
+      "description": "GetAllUsersResponse — ответ со списком пользователей и их данными."
     },
     "v1User": {
       "type": "object",
@@ -261,7 +347,8 @@
         "avatarUrl": {
           "type": "string"
         }
-      }
+      },
+      "description": "User — сущность пользователя с базовыми отображаемыми полями."
     }
   }
 }

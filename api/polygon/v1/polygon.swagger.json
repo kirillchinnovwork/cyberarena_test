@@ -85,6 +85,136 @@
         ]
       }
     },
+    "/v1/admin/initial-items": {
+      "post": {
+        "summary": "CreateInitialItem — создать элемент исходных материалов (опционально для конкретного пользователя).",
+        "operationId": "PolygonAdminService_CreateInitialItem",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1InitialItem"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateInitialItemRequest"
+            }
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      },
+      "patch": {
+        "summary": "EditInitialItem — отредактировать элемент исходных материалов.",
+        "operationId": "PolygonAdminService_EditInitialItem",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1InitialItem"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1EditInitialItemRequest"
+            }
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      }
+    },
+    "/v1/admin/initial-items/upload": {
+      "post": {
+        "summary": "----- Исходные материалы -----",
+        "operationId": "PolygonAdminService_UploadInitialItem",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UploadInitialItemResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "Message that represents an arbitrary HTTP body. It should only be used for\npayload formats that can't be represented as JSON, such as raw binary or\nan HTML page.\n\n\nThis message can be used both in streaming and non-streaming API methods in\nthe request as well as the response.\n\nIt can be used as a top-level request field, which is convenient if one\nwants to extract parameters from either the URL or HTTP template into the\nrequest fields and also want access to the raw HTTP body.\n\nExample:\n\n    message GetResourceRequest {\n      // A unique request id.\n      string request_id = 1;\n\n      // The raw HTTP body is bound to this field.\n      google.api.HttpBody http_body = 2;\n\n    }\n\n    service ResourceService {\n      rpc GetResource(GetResourceRequest)\n        returns (google.api.HttpBody);\n      rpc UpdateResource(google.api.HttpBody)\n        returns (google.protobuf.Empty);\n\n    }\n\nExample with streaming methods:\n\n    service CaldavService {\n      rpc GetCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n      rpc UpdateCalendar(stream google.api.HttpBody)\n        returns (stream google.api.HttpBody);\n\n    }\n\nUse of this type only changes how the request and response bodies are\nhandled, all other features will continue to work unchanged. (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/apiHttpBody"
+            }
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      }
+    },
+    "/v1/admin/initial-items/{id}": {
+      "delete": {
+        "summary": "DeleteInitialItem — удалить элемент исходных материалов.",
+        "operationId": "PolygonAdminService_DeleteInitialItem",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      }
+    },
     "/v1/admin/polygons": {
       "post": {
         "summary": "----- Полигоны -----\nCreatePolygon — создать полигон.",
@@ -183,7 +313,7 @@
         ]
       }
     },
-    "/v1/admin/polygons/{polygonId}/cover:upload": {
+    "/v1/admin/polygons/{polygonId}/cover/upload": {
       "post": {
         "summary": "UploadPolygonCover — загрузить (обновить) обложку конкретного полигона.",
         "operationId": "PolygonAdminService_UploadPolygonCover",
@@ -253,6 +383,45 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/PolygonAdminServiceCreateIncidentBody"
+            }
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      }
+    },
+    "/v1/admin/reports/{reportId}/review": {
+      "post": {
+        "summary": "ReviewReport — подтвердить или отклонить отчёт.",
+        "operationId": "PolygonAdminService_ReviewReport",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Report"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PolygonAdminServiceReviewReportBody"
             }
           }
         ],
@@ -359,6 +528,37 @@
         ]
       }
     },
+    "/v1/admin/teams/{teamId}/reports": {
+      "get": {
+        "summary": "GetTeamReports — получить все отчёты конкретной команды по всем инцидентам.",
+        "operationId": "PolygonAdminService_GetTeamReports",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetTeamReportsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      }
+    },
     "/v1/admin/teams/{teamId}/users/{userId}": {
       "delete": {
         "summary": "RemoveUserFromTeam — удалить пользователя из команды.",
@@ -434,6 +634,35 @@
       }
     },
     "/v1/incidents/{incidentId}/report": {
+      "get": {
+        "summary": "GetIncidentReport - возвращает отчет команды текущего пользователя на инцидент по его id.",
+        "operationId": "PolygonClientService_GetIncidentReport",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Report"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PolygonClientService"
+        ]
+      },
       "post": {
         "summary": "SubmitReport — сдать отчет по инциденту.",
         "operationId": "PolygonClientService_SubmitReport",
@@ -650,6 +879,99 @@
           "PolygonClientService"
         ]
       }
+    },
+    "/v1/reports/{reportId}": {
+      "patch": {
+        "summary": "EditReport — отредактировать отклонённый отчёт (создаёт новую версию и переводит в PENDING).",
+        "operationId": "PolygonClientService_EditReport",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1Report"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PolygonClientServiceEditReportBody"
+            }
+          }
+        ],
+        "tags": [
+          "PolygonClientService"
+        ]
+      }
+    },
+    "/v1/teams": {
+      "get": {
+        "summary": "GetTeams - получить список команд.",
+        "operationId": "PolygonClientService_GetTeams",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetTeamsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "PolygonClientService"
+        ]
+      }
+    },
+    "/v1/users/{userId}/team": {
+      "get": {
+        "summary": "GetUserTeam — получить команду, в которой состоит пользователь.",
+        "operationId": "PolygonClientService_GetUserTeam",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetUserTeamResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PolygonClientService"
+        ]
+      }
     }
   },
   "definitions": {
@@ -664,6 +986,33 @@
         }
       },
       "description": "CreateIncidentRequest — создание инцидента внутри полигона."
+    },
+    "PolygonAdminServiceReviewReportBody": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/v1ReportStatus",
+          "title": "допускаются только ACCEPTED или REJECTED"
+        },
+        "reason": {
+          "type": "string",
+          "title": "обязательна при REJECTED"
+        }
+      },
+      "description": "ReviewReportRequest — админская проверка отчёта.\nreport_id — идентификатор; status — целевой статус (ACCEPTED / REJECTED); reason — причина при отклонении."
+    },
+    "PolygonClientServiceEditReportBody": {
+      "type": "object",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1ReportStep"
+          }
+        }
+      },
+      "description": "EditReportRequest — редактирование ранее отклоненного отчёта.\nreport_id — идентификатор отчёта; steps — новая последовательность шагов (полная замена)."
     },
     "PolygonClientServiceSubmitReportBody": {
       "type": "object",
@@ -731,6 +1080,28 @@
         }
       }
     },
+    "v1CreateInitialItemRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "filesUrls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "userId": {
+          "type": "string",
+          "title": "опционально: приватный для пользователя"
+        }
+      },
+      "title": "----- Запросы управления InitialItem -----"
+    },
     "v1CreatePolygonRequest": {
       "type": "object",
       "properties": {
@@ -772,6 +1143,30 @@
         }
       },
       "description": "EditIncidentRequest — редактирование инцидента."
+    },
+    "v1EditInitialItemRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "filesUrls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "userId": {
+          "type": "string",
+          "title": "установить / снять (пустая строка = сделать публичным)"
+        }
+      }
     },
     "v1EditPolygonRequest": {
       "type": "object",
@@ -845,6 +1240,40 @@
       },
       "description": "GetPolygonsResponse — список полигонов.\npolygons — представления полигонов."
     },
+    "v1GetTeamReportsResponse": {
+      "type": "object",
+      "properties": {
+        "reports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Report"
+          }
+        }
+      }
+    },
+    "v1GetTeamsResponse": {
+      "type": "object",
+      "properties": {
+        "teams": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Team"
+          }
+        }
+      },
+      "description": "GetTeamsResponse — список команд."
+    },
+    "v1GetUserTeamResponse": {
+      "type": "object",
+      "properties": {
+        "team": {
+          "$ref": "#/definitions/v1Team"
+        }
+      },
+      "description": "GetUserTeamResponse — ответ с единственной командой пользователя (отсутствует, если не состоит ни в одной)."
+    },
     "v1Incident": {
       "type": "object",
       "properties": {
@@ -901,12 +1330,10 @@
           "type": "string"
         },
         "redReportStatus": {
-          "$ref": "#/definitions/v1ReportStatus",
-          "title": "статус отчета красной команды"
+          "$ref": "#/definitions/v1ReportStatus"
         },
         "blueReportStatus": {
-          "$ref": "#/definitions/v1ReportStatus",
-          "title": "статус отчета синей команды"
+          "$ref": "#/definitions/v1ReportStatus"
         },
         "basePrize": {
           "type": "string",
@@ -938,6 +1365,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "userId": {
+          "type": "string",
+          "title": "если заполнено — элемент предназначен только указанному пользователю"
         }
       },
       "description": "InitialItem — элемент исходных материалов, доступных участникам.\nid — идентификатор; name — название; description — описание; files_urls — URLs файлов."
@@ -1014,6 +1445,9 @@
         "id": {
           "type": "string"
         },
+        "incident": {
+          "$ref": "#/definitions/v1IncidentView"
+        },
         "team": {
           "$ref": "#/definitions/v1Team"
         },
@@ -1027,6 +1461,13 @@
         "time": {
           "type": "integer",
           "format": "int32"
+        },
+        "status": {
+          "$ref": "#/definitions/v1ReportStatus"
+        },
+        "rejectionReason": {
+          "type": "string",
+          "title": "причина отклонения (заполняется админом при REJECTED)"
         }
       },
       "description": "Report — отчет команды по инциденту.\nsteps — последовательность шагов (ReportStep); time — длительность / отметка."
@@ -1123,6 +1564,14 @@
       ],
       "default": "TEAM_TYPE_RED",
       "description": "TeamType — тип команды в соревновании.\n\n - TEAM_TYPE_RED: Красная команда (атака)\n - TEAM_TYPE_BLUE: Синяя команда (защита)"
+    },
+    "v1UploadInitialItemResponse": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      }
     },
     "v1UploadPolygonCoverResponse": {
       "type": "object",

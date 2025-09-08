@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "gis/polygon/api/auth/v1;pb";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/descriptor.proto";
+
+// LoginRequest — запрос на аутентификацию по отображаемому имени пользователя и паролю.
+message LoginRequest {
+  string name = 1; // Отображаемое имя пользователя (логин)
+  string password = 2; // Пароль в открытом виде (plain).
+}
+
+// LoginResponse — ответ с access token.
+message LoginResponse {
+  string access_token = 1; // JWT access token
+  int64 expires_at_unix = 2; // Unix timestamp (UTC seconds) истечения токена
+  string user_id = 3; // Идентификатор пользователя (subject)
+  string team_id = 4; // Первая (текущая) команда пользователя, может быть пустой
+}
+
+// ValidateTokenRequest — запрос проверки токена.
+message ValidateTokenRequest { string access_token = 1; }
+
+// ValidateTokenResponse — результат валидации токена.
+// Дополнено полем team_id для передачи текущей команды (если есть).
+message ValidateTokenResponse {
+  string user_id = 1; // Идентификатор пользователя из subject
+  string team_id = 2; // Первая (текущая) команда пользователя, может быть пустой
+}
+
+// CreateUserRequest — админский запрос на создание пользователя (в users) + установка пароля.
+message CreateUserRequest {
+  string name = 1;      // Отображаемое имя
+  string password = 2;  // Пароль
+  bytes avatar = 3;     // Опциональный аватар (проксируется в users)
+}
+
+// CreateUserResponse — ответ с созданным пользователем.
+message CreateUserResponse {
+  string user_id = 1;
+  string name = 2;
+  string avatar_url = 3;
+}
+
+// SetPasswordRequest — админский запрос на смену/установку пароля существующего пользователя.
+message SetPasswordRequest { string user_id = 1; string password = 2; }
+
+// AuthClientService — публичные (клиентские) операции аутентификации.
+service AuthClientService {
+  // Login — аутентификация по отображаемому имени (name) и паролю, выдаёт JWT.
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = { post: "/v1/auth/login" body: "*" };
+  }
+  // ValidateToken — валидация токена, возвращает user_id.
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse) {
+    option (google.api.http) = { post: "/v1/auth/validate" body: "*" };
+  }
+}
+
+// AuthAdminService — административные операции управления учётными данными.
+service AuthAdminService {
+  // CreateUser — создаёт профиль пользователя через users + сохраняет пароль.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
+    option (google.api.http) = { post: "/v1/admin/auth/users" body: "*" };
+  }
+  // SetPassword — устанавливает/заменяет пароль пользователя.
+  rpc SetPassword(SetPasswordRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { post: "/v1/admin/auth/users/{user_id}/password" body: "*" };
+  }
+}
+

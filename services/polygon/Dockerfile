@@ -6,6 +6,6 @@ FROM scratch
 
 WORKDIR /bin
 
-COPY bin/users users
+COPY bin/polygon polygon
 
-ENTRYPOINT ["users"]
+ENTRYPOINT ["polygon"]

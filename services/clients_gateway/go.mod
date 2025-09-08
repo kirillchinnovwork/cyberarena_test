@@ -1,4 +1,4 @@
-module gis/polygon/services/gateway
+module gis/polygon/services/clients_gateway
 
 go 1.22
 

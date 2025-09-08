@@ -2,8 +2,11 @@ go 1.24.6
 
 use (
 	./api
-	./services/gateway
+	./services/clients_gateway
 	./services/news
 	./services/users
 	.
+	services/admins_gateway
+	services/auth
+	services/polygon
 )
