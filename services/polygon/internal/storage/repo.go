@@ -97,6 +97,8 @@ func (r *Repo) Migrate(ctx context.Context) error {
 		`alter table initial_items add column if not exists user_id uuid null;`,
 		`alter table initial_items add column if not exists created_at timestamptz not null default now();`,
 		`alter table initial_items add column if not exists updated_at timestamptz not null default now();`,
+		// новые/эволюционные изменения
+		`alter table teams add column if not exists polygon_id uuid null references polygons(id) on delete set null;`,
 	}
 	for _, s := range stmts {
 		if _, err := r.pool.Exec(ctx, s); err != nil {
@@ -264,6 +266,16 @@ func (r *Repo) UpdatePolygon(ctx context.Context, id uuid.UUID, name, descriptio
 	}
 	return nil
 }
+
+// SetTeamPolygon устанавливает polygon_id для команды (можно передать uuid.Nil чтобы отвязать)
+func (r *Repo) SetTeamPolygon(ctx context.Context, teamID, polygonID uuid.UUID) error {
+	var pid *uuid.UUID
+	if polygonID != uuid.Nil {
+		pid = &polygonID
+	}
+	_, err := r.pool.Exec(ctx, `update teams set polygon_id=$2, updated_at=now() where id=$1`, teamID, pid)
+	return err
+}
 func (r *Repo) DeletePolygon(ctx context.Context, id uuid.UUID) error {
 	ct, err := r.pool.Exec(ctx, `delete from polygons where id=$1`, id)
 	if err != nil {
@@ -281,6 +293,19 @@ func (r *Repo) GetPolygon(ctx context.Context, id uuid.UUID) (*Polygon, error) {
 		return nil, err
 	}
 	return &p, nil
+}
+
+// FindBlueTeamByPolygon возвращает синюю команду, привязанную к полигону (teams.polygon_id=id AND type=BLUE)
+func (r *Repo) FindBlueTeamByPolygon(ctx context.Context, polygonID uuid.UUID) (*Team, error) {
+	row := r.pool.QueryRow(ctx, `select id, name, type from teams where polygon_id=$1 and type=1 limit 1`, polygonID)
+	var t Team
+	if err := row.Scan(&t.ID, &t.Name, &t.Type); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &t, nil
 }
 
 func (r *Repo) CreateIncident(ctx context.Context, id, polygonID uuid.UUID, name, description string) error {
@@ -457,7 +482,6 @@ func (r *Repo) ListReportAttachments(ctx context.Context, reportID uuid.UUID) ([
 	return res, rows.Err()
 }
 
-
 func (r *Repo) InsertAttachment(ctx context.Context, id, reportID uuid.UUID, url, objectKey, contentType string, size int64) error {
 	_, err := r.pool.Exec(ctx, `insert into report_attachments(id,report_id,url,object_key,content_type,size) values ($1,$2,$3,$4,$5,$6)`, id, reportID, url, objectKey, contentType, size)
 	return err
@@ -470,7 +494,6 @@ func (r *Repo) GetAttachment(ctx context.Context, id uuid.UUID) (*Attachment, er
 	}
 	return &a, nil
 }
-
 
 func (r *Repo) ListPolygonsWithIncidents(ctx context.Context) ([]PolygonWithIncidents, error) {
 	rows, err := r.pool.Query(ctx, `select p.id, p.name, p.description, coalesce(p.cover_url,'') from polygons p order by p.created_at desc`)
@@ -523,7 +546,6 @@ func (r *Repo) ListIncidents(ctx context.Context, polygonID uuid.UUID) ([]Incide
 	return res, rows.Err()
 }
 
-
 func (r *Repo) ListInitialItems(ctx context.Context, userID *uuid.UUID) ([]InitialItem, error) {
 	var rows pgx.Rows
 	var err error
@@ -546,7 +568,6 @@ func (r *Repo) ListInitialItems(ctx context.Context, userID *uuid.UUID) ([]Initi
 	}
 	return res, rows.Err()
 }
-
 
 type Report struct {
 	ID              uuid.UUID
@@ -621,7 +642,6 @@ type LatestReportStatus struct {
 	CreatedAt  time.Time
 }
 
-
 func (r *Repo) GetLatestReportStatusForTeam(ctx context.Context, incidentID, teamID uuid.UUID) (int32, error) {
 	row := r.pool.QueryRow(ctx, `select status from reports where incident_id=$1 and team_id=$2 order by created_at desc limit 1`, incidentID, teamID)
 	var st int32
@@ -629,6 +649,18 @@ func (r *Repo) GetLatestReportStatusForTeam(ctx context.Context, incidentID, tea
 		return 0, err
 	}
 	return st, nil
+}
+
+// GetLatestReportForTeam возвращает статус и причину отклонения последнего отчёта команды по инциденту.
+// Если отчётов нет — возвращает pgx.ErrNoRows.
+func (r *Repo) GetLatestReportForTeam(ctx context.Context, incidentID, teamID uuid.UUID) (int32, *string, error) {
+	row := r.pool.QueryRow(ctx, `select status, rejection_reason from reports where incident_id=$1 and team_id=$2 order by created_at desc limit 1`, incidentID, teamID)
+	var st int32
+	var reason *string
+	if err := row.Scan(&st, &reason); err != nil {
+		return 0, nil, err
+	}
+	return st, reason, nil
 }
 
 func (r *Repo) GetLatestReportStatusesByType(ctx context.Context, incidentIDs []uuid.UUID, teamType int32) ([]LatestReportStatus, error) {
@@ -662,7 +694,6 @@ func (r *Repo) GetLatestReportStatusesByType(ctx context.Context, incidentIDs []
 	return res, rows.Err()
 }
 
-
 func (r *Repo) GetAcceptedReportTeamIDs(ctx context.Context, incidentIDs []uuid.UUID, teamType int32) (map[uuid.UUID][]uuid.UUID, error) {
 	res := make(map[uuid.UUID][]uuid.UUID)
 	if len(incidentIDs) == 0 {
@@ -674,7 +705,7 @@ func (r *Repo) GetAcceptedReportTeamIDs(ctx context.Context, incidentIDs []uuid.
 		params = append(params, id)
 		placeholders = append(placeholders, "$"+strconv.Itoa(i+1))
 	}
-	
+
 	params = append(params, int32(2))
 	params = append(params, teamType)
 	q := `select distinct r.incident_id, r.team_id
@@ -728,6 +759,65 @@ func (r *Repo) GetUserTeam(ctx context.Context, userID uuid.UUID) (*Team, error)
 		return nil, err
 	}
 	return &t, nil
+}
+
+// GetTeamPolygonID возвращает polygon_id, привязанный к команде (для синих команд)
+func (r *Repo) GetTeamPolygonID(ctx context.Context, teamID uuid.UUID) (uuid.UUID, error) {
+	row := r.pool.QueryRow(ctx, `select coalesce(polygon_id, '00000000-0000-0000-0000-000000000000') from teams where id=$1`, teamID)
+	var pid uuid.UUID
+	if err := row.Scan(&pid); err != nil {
+		return uuid.Nil, err
+	}
+	if pid == uuid.Nil {
+		return uuid.Nil, nil
+	}
+	return pid, nil
+}
+
+// AcceptedRedReportSummary — краткое представление принятого red отчёта для формирования IncidentBlueView.
+type AcceptedRedReportSummary struct {
+	ReportID            uuid.UUID
+	IncidentID          uuid.UUID
+	IncidentName        string
+	IncidentDescription string
+	TeamID              uuid.UUID
+	Time                int32
+}
+
+// ListAcceptedRedReports возвращает принятые отчёты красных команд по набору инцидентов.
+func (r *Repo) ListAcceptedRedReports(ctx context.Context, incidentIDs []uuid.UUID) ([]AcceptedRedReportSummary, error) {
+	if len(incidentIDs) == 0 {
+		return nil, nil
+	}
+	params := make([]any, 0, len(incidentIDs)+2)
+	ph := make([]string, 0, len(incidentIDs))
+	for i, id := range incidentIDs {
+		params = append(params, id)
+		ph = append(ph, "$"+strconv.Itoa(i+1))
+	}
+	// status=2 (ACCEPTED), type=RED(0)
+	params = append(params, int32(2))
+	params = append(params, int32(0))
+	q := `select r.id, r.incident_id, i.name, i.description, r.team_id, r.time
+		  from reports r
+		  join incidents i on i.id=r.incident_id
+		  join teams t on t.id=r.team_id
+		  where r.incident_id in (` + strings.Join(ph, ",") + `) and r.status=$` + strconv.Itoa(len(incidentIDs)+1) + ` and t.type=$` + strconv.Itoa(len(incidentIDs)+2) + `
+		  order by r.created_at` // можно оптимизировать под нужный порядок
+	rows, err := r.pool.Query(ctx, q, params...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var res []AcceptedRedReportSummary
+	for rows.Next() {
+		var a AcceptedRedReportSummary
+		if err := rows.Scan(&a.ReportID, &a.IncidentID, &a.IncidentName, &a.IncidentDescription, &a.TeamID, &a.Time); err != nil {
+			return nil, err
+		}
+		res = append(res, a)
+	}
+	return res, rows.Err()
 }
 
 func (r *Repo) CreateInitialItem(ctx context.Context, id uuid.UUID, name, description string, files []string, userID *uuid.UUID) error {

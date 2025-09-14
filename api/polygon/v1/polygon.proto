@@ -35,17 +35,9 @@ message Polygon {
   string description = 3;
   string cover_url = 4;
   repeated Incident incidents = 5;
+  Team blue_team = 6; // привязанная синяя команда (по ее id). Может быть пусто.
 }
 
-// PolygonView — представление полигона для клиентских списков.
-// incidents — урезанные данные инцидентов (IncidentView).
-message PolygonView {
-  string id = 1;
-  string name = 2;
-  string description = 3;
-  string cover_url = 4;
-  repeated IncidentView incidents = 5;
-}
 
 // Incident — полный инцидент с отчетами обеих команд и победителями.
 // red_reports / blue_reports — отчеты соответствующих команд; red_winner/blue_winner — победившие команды.
@@ -59,23 +51,12 @@ message Incident {
   repeated Team blue_winner = 7;
 }
 
-// IncidentView — укороченное представление инцидента для отображения статусов.
-// red_report_status / blue_report_status — статусы отчетов; base_prize — базовый приз; blue_share_percent — доля синей.
-message IncidentView {
-  string id = 1;
-  string name = 2;
-  string description = 3;
-  ReportStatus red_report_status = 9;
-  ReportStatus blue_report_status = 10;
-  int64 base_prize = 11; // базовый приз (начисляется красной при принятии её отчета)
-  uint32 blue_share_percent = 12; // процент, уходящий синей при принятии её отчета
-}
 
 // Report — отчет команды по инциденту.
 // steps — последовательность шагов (ReportStep); time — длительность / отметка.
 message Report {
   string id = 1;
-  IncidentView incident = 7;
+  string incident_id = 7; // ссылка на инцидент
   Team team = 2;
   repeated ReportStep steps = 3;
   int32 time = 4;
@@ -103,6 +84,48 @@ message ReportAttachment {
   string url = 2;
   string content_type = 3;
   int64 size = 4;
+}
+
+// ----- Новые специализированные представления для разделения логики красных и синих команд -----
+// PolygonRedView / IncidentRedView используются для красных команд (списки всех доступных полигонов и инцидентов).
+// PolygonBlueView / IncidentBlueView используются для синих команд (ровно один полигон + инциденты с привязкой к красной команде и статусу своего отчёта).
+message PolygonRedView {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string cover_url = 4;
+  repeated IncidentRedView incidents = 5;
+}
+
+message PolygonBlueView {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string cover_url = 4;
+  repeated IncidentBlueView incidents = 5;
+  Team blue_team = 6; // та же синяя команда (удобно фронту)
+}
+
+message IncidentRedView {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  int64 prize = 11; // приз для красной команды при принятии отчёта
+  ReportStatus my_report_status = 13; // статус последнего отчёта текущей красной команды
+  string my_rejection_reason = 14; // причина отклонения (если применимо)
+}
+
+message IncidentBlueView {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  Team red_team = 8; // красная команда, чей принятый отчёт является основой для защиты
+  string red_team_report_id = 9; // id принятого отчёта красной команды
+  int32 red_team_report_time = 10; // время реализации атаки красной команды
+  int64 prize = 11; // приз / показатель, начисляемый за успешную защиту
+  ReportStatus my_report_status = 13; // статус последнего отчёта синей команды
+  string my_rejection_reason = 14; // причина отклонения (если применимо)
+  // Один и тот же инцидент может повторяться в списке с разными (red_team, red_team_report_id), если принято несколько red отчётов.
 }
 
 // UploadReportAttachmentResponse — ответ на загрузку вложения отчета.
@@ -163,21 +186,33 @@ message Team {
   repeated users.v1.User users = 4;
 }
 
-// GetPolygonsResponse — список полигонов.
-// polygons — представления полигонов.
-message GetPolygonsResponse {
-  repeated PolygonView polygons = 1;
+
+// Запросы/ответы специализированных методов
+message GetRedPolygonsResponse {
+  repeated PolygonRedView polygons = 1;
+}
+message GetBluePolygonResponse {
+  PolygonBlueView polygon = 1; // единственный полигон синей команды
 }
 
-// GetIncidentsRequest — запрос инцидентов конкретного полигона.
-message GetIncidentsRequest {
+// GetRedIncidentsRequest — запрос списка инцидентов (красная команда) по полигону.
+message GetRedIncidentsRequest {
   string polygon_id = 1;
 }
 
-// GetIncidentsResponse — список инцидентов (представления).
-message GetIncidentsResponse {
-  repeated IncidentView incidents = 1;
+// GetRedIncidentsResponse — список инцидентов для красной команды.
+message GetRedIncidentsResponse {
+  repeated IncidentRedView incidents = 1;
 }
+
+// GetBlueIncidentsRequest — запрос инцидентов синей команды (для её единственного полигона).
+message GetBlueIncidentsRequest {}
+
+// GetBlueIncidentsResponse — список инцидентов (дубликаты возможны по accepted red отчётам).
+message GetBlueIncidentsResponse {
+  repeated IncidentBlueView incidents = 1;
+}
+
 
 // GetInitialItemsResponse — ответ с исходными материалами.
 message GetInitialItemsResponse {
@@ -264,6 +299,7 @@ message CreatePolygonRequest {
   string name = 1;
   string description = 2;
   string cover_url = 3;
+  string blue_team_id = 4; // id синей команды (опционально)
 }
 
 // EditPolygonRequest — редактирование полигона.
@@ -272,6 +308,7 @@ message EditPolygonRequest {
   string name = 2;
   string description = 3;
   string cover_url = 4;
+  string blue_team_id = 5; // новый id синей команды (опционально)
 }
 
 // DeletePolygonRequest — удаление полигона.
@@ -335,15 +372,26 @@ service PolygonClientService {
     option (google.api.http) = {get: "/v1/initialItems"};
   }
 
-  // GetPolygons — получить список полигонов.
-  rpc GetPolygons(google.protobuf.Empty) returns (GetPolygonsResponse) {
-    option (google.api.http) = {get: "/v1/polygons"};
+
+  // GetRedPolygons — специализированный список полигонов для красной команды.
+  rpc GetRedPolygons(google.protobuf.Empty) returns (GetRedPolygonsResponse) {
+    option (google.api.http) = {get: "/v1/red/polygons"};
+  }
+  // GetBluePolygon — единственный полигон синей команды (с расширенными инцидентами по принятым red отчётам).
+  rpc GetBluePolygon(google.protobuf.Empty) returns (GetBluePolygonResponse) {
+    option (google.api.http) = {get: "/v1/blue/polygon"};
   }
 
-  // GetIncidents — получить инциденты выбранного полигона.
-  rpc GetIncidents(GetIncidentsRequest) returns (GetIncidentsResponse) {
-    option (google.api.http) = {get: "/v1/polygons/{polygon_id}/incidents"};
+  // GetRedIncidents — инциденты выбранного полигона (вид красной команды).
+  rpc GetRedIncidents(GetRedIncidentsRequest) returns (GetRedIncidentsResponse) {
+    option (google.api.http) = {get: "/v1/red/polygons/{polygon_id}/incidents"};
   }
+
+  // GetBlueIncidents — инциденты единственного полигона синей команды (с возможными повторениями по accepted red отчётам).
+  rpc GetBlueIncidents(GetBlueIncidentsRequest) returns (GetBlueIncidentsResponse) {
+    option (google.api.http) = {get: "/v1/blue/incidents"};
+  }
+
 
   // SubmitReport — сдать отчет по инциденту.
   rpc SubmitReport(SubmitReportRequest) returns (Report) {
@@ -433,6 +481,10 @@ service PolygonAdminService {
       body: "*"
     };
   }
+  // ListPolygons — получить список полигонов (админ, без инцидентов).
+  rpc ListPolygons(google.protobuf.Empty) returns (AdminListPolygonsResponse) {
+    option (google.api.http) = {get: "/v1/admin/polygons"};
+  }
   // EditPolygon — отредактировать полигон по id (частичное обновление переданных полей).
   rpc EditPolygon(EditPolygonRequest) returns (Polygon) {
     option (google.api.http) = {
@@ -452,6 +504,10 @@ service PolygonAdminService {
       post: "/v1/admin/polygons/{polygon_id}/incidents"
       body: "*"
     };
+  }
+  // ListIncidents — получить список инцидентов полигона (админ).
+  rpc ListIncidents(AdminListIncidentsRequest) returns (AdminListIncidentsResponse) {
+    option (google.api.http) = {get: "/v1/admin/polygons/{polygon_id}/incidents"};
   }
   // EditIncident — отредактировать инцидент по id.
   rpc EditIncident(EditIncidentRequest) returns (Incident) {
@@ -536,3 +592,10 @@ message DeleteInitialItemRequest {
 message UploadInitialItemResponse {
   string url = 1;
 }
+
+// ----- Admin listing -----
+message AdminListPolygonsResponse {
+  repeated Polygon polygons = 1; // без вложенных инцидентов (поле incidents может быть пусто)
+}
+message AdminListIncidentsRequest { string polygon_id = 1; }
+message AdminListIncidentsResponse { repeated Incident incidents = 1; }

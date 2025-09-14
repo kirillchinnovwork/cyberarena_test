@@ -46,6 +46,19 @@ services:
       - postgres
       - minio
 
+  attachments:
+    build: services/attachments
+    container_name: attachments
+    environment:
+      - ATTACHMENTS_GRPC_ADDR=:50055
+      - ATTACHMENTS_S3_ENDPOINT=minio:9000
+      - ATTACHMENTS_S3_ACCESS_KEY=minioadmin
+      - ATTACHMENTS_S3_SECRET_KEY=minioadmin
+      - ATTACHMENTS_S3_BUCKET=attachments
+      - ATTACHMENTS_S3_USE_SSL=false
+    depends_on:
+      - minio
+
   auth:
     build: services/auth
     container_name: auth
@@ -66,11 +79,15 @@ services:
       - USERS_GRPC_ADDR=users:50051
       - NEWS_GRPC_ADDR=news:50052
       - AUTH_GRPC_ADDR=auth:50053
+      - POLYGON_GRPC_ADDR=polygon:50054
+      - ATTACHMENTS_GRPC_ADDR=attachments:50055
       - GATEWAY_HTTP_ADDR=:8080
     depends_on:
       - users
       - news
       - auth
+      - polygon
+      - attachments
     ports:
       - "8080:8080"
 
@@ -81,11 +98,15 @@ services:
       - USERS_GRPC_ADDR=users:50051
       - NEWS_GRPC_ADDR=news:50052
       - AUTH_GRPC_ADDR=auth:50053
+      - POLYGON_GRPC_ADDR=polygon:50054
+      - ATTACHMENTS_GRPC_ADDR=attachments:50055
       - GATEWAY_HTTP_ADDR=:8081
     depends_on:
       - users
       - news
       - auth
+      - polygon
+      - attachments
     ports:
       - "8081:8081"
 

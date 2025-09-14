@@ -33,7 +33,7 @@ func (s *PolygonServer) SubmitReport(ctx context.Context, req *pb.SubmitReportRe
 	if teamID == "" {
 		return nil, status.Error(codes.PermissionDenied, "no team")
 	}
-	
+
 	if _, err := s.repo.GetIncident(ctx, incidentID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "incident not found")
@@ -41,9 +41,9 @@ func (s *PolygonServer) SubmitReport(ctx context.Context, req *pb.SubmitReportRe
 		return nil, status.Errorf(codes.Internal, "incident: %v", err)
 	}
 	tid, _ := uuid.Parse(teamID)
-	
+
 	if exists, existingID, err := s.repo.ReportExistsForTeam(ctx, incidentID, tid); err == nil && exists {
-		
+
 		rp, err2 := s.repo.GetReport(ctx, existingID)
 		if err2 == nil {
 			return toPBReport(rp), nil
@@ -98,7 +98,7 @@ func (s *PolygonServer) UploadReportAttachment(stream pb.PolygonClientService_Up
 	if err != nil {
 		return status.Errorf(codes.Internal, "s3 put: %v", err)
 	}
-	
+
 	return stream.SendAndClose(&pb.UploadReportAttachmentResponse{
 		Attachment: &pb.ReportAttachment{
 			Id:          attID.String(),
@@ -196,58 +196,8 @@ func (s *PolygonServer) GetIncidentReport(ctx context.Context, req *pb.GetIncide
 		}
 		return nil, status.Errorf(codes.Internal, "get: %v", err)
 	}
-	
-	var currentTeamType *int32
-	if tm, err := s.repo.GetTeam(ctx, tid); err == nil {
-		ct := tm.Type
-		currentTeamType = &ct
-	}
-	iv := &pb.IncidentView{Id: incidentID.String()}
-	incidentIDs := []uuid.UUID{incidentID}
-	redStatuses, _ := s.repo.GetLatestReportStatusesByType(ctx, incidentIDs, int32(pb.TeamType_TEAM_TYPE_RED))
-	blueStatuses, _ := s.repo.GetLatestReportStatusesByType(ctx, incidentIDs, int32(pb.TeamType_TEAM_TYPE_BLUE))
-	
-	var latestRed, latestBlue *storage.LatestReportStatus
-	for _, rs := range redStatuses {
-		rsc := rs
-		if latestRed == nil || rsc.CreatedAt.After(latestRed.CreatedAt) {
-			latestRed = &rsc
-		}
-	}
-	for _, bs := range blueStatuses {
-		bsc := bs
-		if latestBlue == nil || bsc.CreatedAt.After(latestBlue.CreatedAt) {
-			latestBlue = &bsc
-		}
-	}
-	acceptedRedTeams, _ := s.repo.GetAcceptedReportTeamIDs(ctx, incidentIDs, int32(pb.TeamType_TEAM_TYPE_RED))
-	if currentTeamType != nil && *currentTeamType == int32(pb.TeamType_TEAM_TYPE_RED) {
-		if st, err := s.repo.GetLatestReportStatusForTeam(ctx, incidentID, tid); err == nil {
-			iv.RedReportStatus = pb.ReportStatus(st)
-		}
-		for _, rid := range acceptedRedTeams[incidentID] {
-			if rid == tid {
-				if latestBlue != nil {
-					iv.BlueReportStatus = pb.ReportStatus(latestBlue.Status)
-				}
-				break
-			}
-		}
-	} else if currentTeamType != nil && *currentTeamType == int32(pb.TeamType_TEAM_TYPE_BLUE) {
-		if st, err := s.repo.GetLatestReportStatusForTeam(ctx, incidentID, tid); err == nil {
-			iv.BlueReportStatus = pb.ReportStatus(st)
-		}
-		if latestRed != nil {
-			iv.RedReportStatus = pb.ReportStatus(latestRed.Status)
-		}
-	}
-	
-	pbSteps := make([]*pb.ReportStep, 0, len(rp.Steps))
-	for _, sst := range rp.Steps {
-		pbSteps = append(pbSteps, &pb.ReportStep{Id: sst.ID.String(), Number: uint32(sst.Number), Name: sst.Name, Time: sst.Time, Description: sst.Description, Target: sst.Target, Source: sst.Source, Result: sst.Result})
-	}
-	out := &pb.Report{Id: rp.ID.String(), Incident: iv, Team: &pb.Team{Id: rp.TeamID.String()}, Steps: pbSteps, Time: rp.Time, Status: pb.ReportStatus(rp.Status), RejectionReason: rp.RejectionReason}
-	return out, nil
+	// Преобразуем через обновлённый helper (incident_id поле)
+	return toPBReport(rp), nil
 }
 
 func (s *PolygonServer) ReviewReport(ctx context.Context, req *pb.ReviewReportRequest) (*pb.Report, error) {

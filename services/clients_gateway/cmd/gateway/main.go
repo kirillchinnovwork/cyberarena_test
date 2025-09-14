@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	attv1 "gis/polygon/api/attachments/v1"
 	authv1 "gis/polygon/api/auth/v1"
 	newsv1 "gis/polygon/api/news/v1"
 	polygonv1 "gis/polygon/api/polygon/v1"
@@ -36,6 +37,7 @@ func main() {
 	usersAddr := getEnv("USERS_GRPC_ADDR", "users:50051")
 	newsAddr := getEnv("NEWS_GRPC_ADDR", "news:50052")
 	polygonAddr := getEnv("POLYGON_GRPC_ADDR", "polygon:50054")
+	attachmentsAddr := getEnv("ATTACHMENTS_GRPC_ADDR", "attachments:50055")
 	authAddr := getEnv("AUTH_GRPC_ADDR", "auth:50053")
 
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
@@ -82,6 +84,9 @@ func main() {
 	}
 	if err := authv1.RegisterAuthClientServiceHandlerFromEndpoint(ctx, mux, authAddr, dialOpts); err != nil {
 		log.Fatalf("register auth handler: %v", err)
+	}
+	if err := attv1.RegisterAttachmentsClientServiceHandlerFromEndpoint(ctx, mux, attachmentsAddr, dialOpts); err != nil {
+		log.Fatalf("register attachments handler: %v", err)
 	}
 
 	root := authMiddleware(authClient, mux)

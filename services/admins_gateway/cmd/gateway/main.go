@@ -7,19 +7,19 @@ import (
 	"os"
 	"time"
 
+	attv1 "gis/polygon/api/attachments/v1"
 	authv1 "gis/polygon/api/auth/v1"
 	newsv1 "gis/polygon/api/news/v1"
 	polygonv1 "gis/polygon/api/polygon/v1"
 	usersv1 "gis/polygon/api/users/v1"
 
-	"github.com/black-06/grpc-gateway-file"
+	gatewayfile "github.com/black-06/grpc-gateway-file"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/rs/cors"
 )
-
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -35,6 +35,7 @@ func main() {
 	newsAddr := getEnv("NEWS_GRPC_ADDR", "news:50052")
 	authAddr := getEnv("AUTH_GRPC_ADDR", "auth:50053")
 	polygonAddr := getEnv("POLYGON_GRPC_ADDR", "polygon:50054")
+	attachmentsAddr := getEnv("ATTACHMENTS_GRPC_ADDR", "attachments:50055")
 
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
@@ -49,6 +50,9 @@ func main() {
 	}
 	if err := authv1.RegisterAuthAdminServiceHandlerFromEndpoint(ctx, mux, authAddr, dialOpts); err != nil {
 		log.Fatalf("register auth admin handler: %v", err)
+	}
+	if err := attv1.RegisterAttachmentsAdminServiceHandlerFromEndpoint(ctx, mux, attachmentsAddr, dialOpts); err != nil {
+		log.Fatalf("register attachments admin handler: %v", err)
 	}
 
 	httpAddr := getEnv("GATEWAY_HTTP_ADDR", ":8080")

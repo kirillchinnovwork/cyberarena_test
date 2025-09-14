@@ -113,8 +113,7 @@ func toPBReport(r *storage.Report) *pb.Report {
 	for _, s := range r.Steps {
 		pbSteps = append(pbSteps, &pb.ReportStep{Id: s.ID.String(), Number: uint32(s.Number), Name: s.Name, Time: s.Time, Description: s.Description, Target: s.Target, Source: s.Source, Result: s.Result})
 	}
-	
-	return &pb.Report{Id: r.ID.String(), Incident: &pb.IncidentView{Id: r.IncidentID.String()}, Team: &pb.Team{Id: r.TeamID.String()}, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason}
+	return &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), Team: &pb.Team{Id: r.TeamID.String()}, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason}
 }
 
 func derefOr(p *string, def string) string {

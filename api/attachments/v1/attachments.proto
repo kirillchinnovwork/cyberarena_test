@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package attachments.v1;
+
+import "google/api/annotations.proto";
+import "google/api/httpbody.proto";
+
+option go_package = "gis/polygon/api/attachments/v1;attpb";
+
+// Attachment — метаданные файла.
+// url — публичный URL (или относительный путь); content_type — MIME тип; size — размер в байтах; user_id — владелец (если загружено через ClientService).
+message Attachment {
+  string id = 1;
+  string url = 2;
+  string content_type = 3;
+  int64 size = 4;
+  string user_id = 5; // может быть пустым если загружено через AdminService
+}
+
+// UploadAttachmentResponse — ответ на загрузку.
+message UploadAttachmentResponse {
+  Attachment attachment = 1;
+}
+
+// DownloadAttachmentRequest — запрос скачивания по идентификатору.
+message DownloadAttachmentRequest {
+  string id = 1;
+}
+
+service AttachmentsClientService {
+  // UploadAttachment — загрузить файл (stream form-data / bytes). Требует user-id метаданные.
+  rpc UploadAttachment(stream google.api.HttpBody) returns (UploadAttachmentResponse) {
+    option (google.api.http) = {post: "/v1/attachments/upload"};
+  }
+  // DownloadAttachment — скачать файл по id. Доступно без авторизации.
+  rpc DownloadAttachment(DownloadAttachmentRequest) returns (stream google.api.HttpBody) {
+    option (google.api.http) = {get: "/v1/attachments/{id}"};
+  }
+}
+
+service AttachmentsAdminService {
+  // UploadAttachment — загрузка без авторизации (user_id не сохраняется).
+  rpc UploadAttachmentAdmin(stream google.api.HttpBody) returns (UploadAttachmentResponse) {
+    option (google.api.http) = {post: "/admin/v1/attachments/upload"};
+  }
+}

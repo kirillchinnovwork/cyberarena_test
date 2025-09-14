@@ -9,4 +9,5 @@ use (
 	services/admins_gateway
 	services/auth
 	services/polygon
+	services/attachments
 )

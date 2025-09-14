@@ -216,6 +216,27 @@
       }
     },
     "/v1/admin/polygons": {
+      "get": {
+        "summary": "ListPolygons — получить список полигонов (админ, без инцидентов).",
+        "operationId": "PolygonAdminService_ListPolygons",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AdminListPolygonsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "PolygonAdminService"
+        ]
+      },
       "post": {
         "summary": "----- Полигоны -----\nCreatePolygon — создать полигон.",
         "operationId": "PolygonAdminService_CreatePolygon",
@@ -353,6 +374,35 @@
       }
     },
     "/v1/admin/polygons/{polygonId}/incidents": {
+      "get": {
+        "summary": "ListIncidents — получить список инцидентов полигона (админ).",
+        "operationId": "PolygonAdminService_ListIncidents",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AdminListIncidentsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "polygonId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      },
       "post": {
         "summary": "----- Инциденты -----\nCreateIncident — создать инцидент внутри указанного полигона.",
         "operationId": "PolygonAdminService_CreateIncident",
@@ -633,6 +683,52 @@
         ]
       }
     },
+    "/v1/blue/incidents": {
+      "get": {
+        "summary": "GetBlueIncidents — инциденты единственного полигона синей команды (с возможными повторениями по accepted red отчётам).",
+        "operationId": "PolygonClientService_GetBlueIncidents",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetBlueIncidentsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "PolygonClientService"
+        ]
+      }
+    },
+    "/v1/blue/polygon": {
+      "get": {
+        "summary": "GetBluePolygon — единственный полигон синей команды (с расширенными инцидентами по принятым red отчётам).",
+        "operationId": "PolygonClientService_GetBluePolygon",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetBluePolygonResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "PolygonClientService"
+        ]
+      }
+    },
     "/v1/incidents/{incidentId}/report": {
       "get": {
         "summary": "GetIncidentReport - возвращает отчет команды текущего пользователя на инцидент по его id.",
@@ -724,29 +820,6 @@
         ]
       }
     },
-    "/v1/polygons": {
-      "get": {
-        "summary": "GetPolygons — получить список полигонов.",
-        "operationId": "PolygonClientService_GetPolygons",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1GetPolygonsResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "tags": [
-          "PolygonClientService"
-        ]
-      }
-    },
     "/v1/polygons/{polygonId}/cover": {
       "get": {
         "summary": "DownloadPolygonCover — скачать бинарное содержимое обложки полигона.",
@@ -781,15 +854,38 @@
         ]
       }
     },
-    "/v1/polygons/{polygonId}/incidents": {
+    "/v1/red/polygons": {
       "get": {
-        "summary": "GetIncidents — получить инциденты выбранного полигона.",
-        "operationId": "PolygonClientService_GetIncidents",
+        "summary": "GetRedPolygons — специализированный список полигонов для красной команды.",
+        "operationId": "PolygonClientService_GetRedPolygons",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/v1GetIncidentsResponse"
+              "$ref": "#/definitions/v1GetRedPolygonsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "PolygonClientService"
+        ]
+      }
+    },
+    "/v1/red/polygons/{polygonId}/incidents": {
+      "get": {
+        "summary": "GetRedIncidents — инциденты выбранного полигона (вид красной команды).",
+        "operationId": "PolygonClientService_GetRedIncidents",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetRedIncidentsResponse"
             }
           },
           "default": {
@@ -1080,6 +1176,32 @@
         }
       }
     },
+    "v1AdminListIncidentsResponse": {
+      "type": "object",
+      "properties": {
+        "incidents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Incident"
+          }
+        }
+      }
+    },
+    "v1AdminListPolygonsResponse": {
+      "type": "object",
+      "properties": {
+        "polygons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Polygon"
+          },
+          "title": "без вложенных инцидентов (поле incidents может быть пусто)"
+        }
+      },
+      "title": "----- Admin listing -----"
+    },
     "v1CreateInitialItemRequest": {
       "type": "object",
       "properties": {
@@ -1113,6 +1235,10 @@
         },
         "coverUrl": {
           "type": "string"
+        },
+        "blueTeamId": {
+          "type": "string",
+          "title": "id синей команды (опционально)"
         }
       },
       "description": "CreatePolygonRequest — создание полигона."
@@ -1182,6 +1308,10 @@
         },
         "coverUrl": {
           "type": "string"
+        },
+        "blueTeamId": {
+          "type": "string",
+          "title": "новый id синей команды (опционально)"
         }
       },
       "description": "EditPolygonRequest — редактирование полигона."
@@ -1201,18 +1331,27 @@
       },
       "description": "EditTeamRequest — редактирование команды (передавайте только изменяемые поля)."
     },
-    "v1GetIncidentsResponse": {
+    "v1GetBlueIncidentsResponse": {
       "type": "object",
       "properties": {
         "incidents": {
           "type": "array",
           "items": {
             "type": "object",
-            "$ref": "#/definitions/v1IncidentView"
+            "$ref": "#/definitions/v1IncidentBlueView"
           }
         }
       },
-      "description": "GetIncidentsResponse — список инцидентов (представления)."
+      "description": "GetBlueIncidentsResponse — список инцидентов (дубликаты возможны по accepted red отчётам)."
+    },
+    "v1GetBluePolygonResponse": {
+      "type": "object",
+      "properties": {
+        "polygon": {
+          "$ref": "#/definitions/v1PolygonBlueView",
+          "title": "единственный полигон синей команды"
+        }
+      }
     },
     "v1GetInitialItemsResponse": {
       "type": "object",
@@ -1227,18 +1366,31 @@
       },
       "description": "GetInitialItemsResponse — ответ с исходными материалами."
     },
-    "v1GetPolygonsResponse": {
+    "v1GetRedIncidentsResponse": {
+      "type": "object",
+      "properties": {
+        "incidents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1IncidentRedView"
+          }
+        }
+      },
+      "description": "GetRedIncidentsResponse — список инцидентов для красной команды."
+    },
+    "v1GetRedPolygonsResponse": {
       "type": "object",
       "properties": {
         "polygons": {
           "type": "array",
           "items": {
             "type": "object",
-            "$ref": "#/definitions/v1PolygonView"
+            "$ref": "#/definitions/v1PolygonRedView"
           }
         }
       },
-      "description": "GetPolygonsResponse — список полигонов.\npolygons — представления полигонов."
+      "title": "Запросы/ответы специализированных методов"
     },
     "v1GetTeamReportsResponse": {
       "type": "object",
@@ -1317,7 +1469,7 @@
       },
       "description": "Incident — полный инцидент с отчетами обеих команд и победителями.\nred_reports / blue_reports — отчеты соответствующих команд; red_winner/blue_winner — победившие команды."
     },
-    "v1IncidentView": {
+    "v1IncidentBlueView": {
       "type": "object",
       "properties": {
         "id": {
@@ -1329,24 +1481,60 @@
         "description": {
           "type": "string"
         },
-        "redReportStatus": {
-          "$ref": "#/definitions/v1ReportStatus"
+        "redTeam": {
+          "$ref": "#/definitions/v1Team",
+          "title": "красная команда, чей принятый отчёт является основой для защиты"
         },
-        "blueReportStatus": {
-          "$ref": "#/definitions/v1ReportStatus"
+        "redTeamReportId": {
+          "type": "string",
+          "title": "id принятого отчёта красной команды"
         },
-        "basePrize": {
+        "redTeamReportTime": {
+          "type": "integer",
+          "format": "int32",
+          "title": "время реализации атаки красной команды"
+        },
+        "prize": {
           "type": "string",
           "format": "int64",
-          "title": "базовый приз (начисляется красной при принятии её отчета)"
+          "title": "приз / показатель, начисляемый за успешную защиту"
         },
-        "blueSharePercent": {
-          "type": "integer",
-          "format": "int64",
-          "title": "процент, уходящий синей при принятии её отчета"
+        "myReportStatus": {
+          "$ref": "#/definitions/v1ReportStatus",
+          "title": "статус последнего отчёта синей команды"
+        },
+        "myRejectionReason": {
+          "type": "string",
+          "title": "причина отклонения (если применимо)"
         }
-      },
-      "description": "IncidentView — укороченное представление инцидента для отображения статусов.\nred_report_status / blue_report_status — статусы отчетов; base_prize — базовый приз; blue_share_percent — доля синей."
+      }
+    },
+    "v1IncidentRedView": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "prize": {
+          "type": "string",
+          "format": "int64",
+          "title": "приз для красной команды при принятии отчёта"
+        },
+        "myReportStatus": {
+          "$ref": "#/definitions/v1ReportStatus",
+          "title": "статус последнего отчёта текущей красной команды"
+        },
+        "myRejectionReason": {
+          "type": "string",
+          "title": "причина отклонения (если применимо)"
+        }
+      }
     },
     "v1InitialItem": {
       "type": "object",
@@ -1394,27 +1582,15 @@
             "type": "object",
             "$ref": "#/definitions/v1Incident"
           }
+        },
+        "blueTeam": {
+          "$ref": "#/definitions/v1Team",
+          "description": "привязанная синяя команда (по ее id). Может быть пусто."
         }
       },
       "description": "Polygon — сущность полигона (набор инцидентов).\ncover_url — URL обложки; incidents — связанные инциденты."
     },
-    "v1PolygonCoverMeta": {
-      "type": "object",
-      "properties": {
-        "url": {
-          "type": "string"
-        },
-        "contentType": {
-          "type": "string"
-        },
-        "size": {
-          "type": "string",
-          "format": "int64"
-        }
-      },
-      "description": "---- Обложки полигонов ----\nPolygonCoverMeta — метаданные загруженной обложки полигона."
-    },
-    "v1PolygonView": {
+    "v1PolygonBlueView": {
       "type": "object",
       "properties": {
         "id": {
@@ -1433,11 +1609,55 @@
           "type": "array",
           "items": {
             "type": "object",
-            "$ref": "#/definitions/v1IncidentView"
+            "$ref": "#/definitions/v1IncidentBlueView"
+          }
+        },
+        "blueTeam": {
+          "$ref": "#/definitions/v1Team",
+          "title": "та же синяя команда (удобно фронту)"
+        }
+      }
+    },
+    "v1PolygonCoverMeta": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "description": "---- Обложки полигонов ----\nPolygonCoverMeta — метаданные загруженной обложки полигона."
+    },
+    "v1PolygonRedView": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "coverUrl": {
+          "type": "string"
+        },
+        "incidents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1IncidentRedView"
           }
         }
       },
-      "description": "PolygonView — представление полигона для клиентских списков.\nincidents — урезанные данные инцидентов (IncidentView)."
+      "description": "----- Новые специализированные представления для разделения логики красных и синих команд -----\nPolygonRedView / IncidentRedView используются для красных команд (списки всех доступных полигонов и инцидентов).\nPolygonBlueView / IncidentBlueView используются для синих команд (ровно один полигон + инциденты с привязкой к красной команде и статусу своего отчёта)."
     },
     "v1Report": {
       "type": "object",
@@ -1445,8 +1665,9 @@
         "id": {
           "type": "string"
         },
-        "incident": {
-          "$ref": "#/definitions/v1IncidentView"
+        "incidentId": {
+          "type": "string",
+          "title": "ссылка на инцидент"
         },
         "team": {
           "$ref": "#/definitions/v1Team"
