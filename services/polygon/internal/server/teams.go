@@ -21,19 +21,39 @@ func (s *PolygonServer) GetTeams(ctx context.Context, _ *emptypb.Empty) (*pb.Get
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list teams: %v", err)
 	}
+	prizes, err := s.repo.ListTeamPrizes(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "team prizes: %v", err)
+	}
 	resp := &pb.GetTeamsResponse{}
-	
+
 	if s.usersAdminClient == nil {
+		userCache := map[string]*upb.User{}
 		for _, t := range list {
 			pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type)}
+			if v, ok := prizes[t.ID]; ok {
+				pbTeam.PrizeTotal = v
+			}
 			for _, uid := range t.UserIDs {
-				pbTeam.Users = append(pbTeam.Users, &upb.User{Id: uid.String()})
+				uidStr := uid.String()
+				if s.usersClient != nil {
+					if u, ok := userCache[uidStr]; ok {
+						pbTeam.Users = append(pbTeam.Users, u)
+						continue
+					}
+					if uResp, err2 := s.usersClient.GetUser(ctx, &upb.GetUserRequest{Id: uidStr}); err2 == nil && uResp != nil {
+						userCache[uidStr] = uResp
+						pbTeam.Users = append(pbTeam.Users, uResp)
+						continue
+					}
+				}
+				pbTeam.Users = append(pbTeam.Users, &upb.User{Id: uidStr})
 			}
 			resp.Teams = append(resp.Teams, pbTeam)
 		}
 		return resp, nil
 	}
-	
+
 	userCache := make(map[string]*upb.User)
 	page := int32(1)
 	pageSize := int32(500)
@@ -56,6 +76,9 @@ func (s *PolygonServer) GetTeams(ctx context.Context, _ *emptypb.Empty) (*pb.Get
 	}
 	for _, t := range list {
 		pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type), Users: []*upb.User{}}
+		if v, ok := prizes[t.ID]; ok {
+			pbTeam.PrizeTotal = v
+		}
 		for _, uid := range t.UserIDs {
 			if u, ok := userCache[uid.String()]; ok {
 				pbTeam.Users = append(pbTeam.Users, &upb.User{Id: u.GetId(), Name: u.GetName(), AvatarUrl: u.GetAvatarUrl()})
@@ -67,7 +90,6 @@ func (s *PolygonServer) GetTeams(ctx context.Context, _ *emptypb.Empty) (*pb.Get
 	}
 	return resp, nil
 }
-
 
 func (s *PolygonServer) CreateTeam(ctx context.Context, req *pb.CreateTeamRequest) (*pb.Team, error) {
 	name := strings.TrimSpace(req.GetName())
@@ -89,7 +111,7 @@ func (s *PolygonServer) EditTeam(ctx context.Context, req *pb.EditTeamRequest) (
 		return nil, status.Error(codes.InvalidArgument, "invalid id")
 	}
 	var tptr *int32
-	if req.Type != pb.TeamType(0) || req.Name == "" { 
+	if req.Type != pb.TeamType(0) || req.Name == "" {
 		v := int32(req.GetType())
 		tptr = &v
 	}

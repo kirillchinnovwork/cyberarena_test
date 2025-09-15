@@ -42,6 +42,7 @@ services:
       - POLYGON_S3_SECRET_KEY=minioadmin
       - POLYGON_S3_BUCKET=polygon
       - POLYGON_S3_USE_SSL=false
+      - USERS_GRPC_ADDR=users:50051
     depends_on:
       - postgres
       - minio

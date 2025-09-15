@@ -59,6 +59,7 @@ func (r *Repo) Migrate(ctx context.Context) error {
 			id uuid primary key,
 			incident_id uuid not null references incidents(id) on delete cascade,
 			team_id uuid not null references teams(id) on delete cascade,
+			red_team_report_id uuid null references reports(id) on delete set null,
 			status smallint not null,
 			rejection_reason text,
 			time int not null default 0,
@@ -97,8 +98,8 @@ func (r *Repo) Migrate(ctx context.Context) error {
 		`alter table initial_items add column if not exists user_id uuid null;`,
 		`alter table initial_items add column if not exists created_at timestamptz not null default now();`,
 		`alter table initial_items add column if not exists updated_at timestamptz not null default now();`,
-		// новые/эволюционные изменения
 		`alter table teams add column if not exists polygon_id uuid null references polygons(id) on delete set null;`,
+		`alter table reports add column if not exists red_team_report_id uuid null references reports(id) on delete set null;`,
 	}
 	for _, s := range stmts {
 		if _, err := r.pool.Exec(ctx, s); err != nil {
@@ -267,7 +268,6 @@ func (r *Repo) UpdatePolygon(ctx context.Context, id uuid.UUID, name, descriptio
 	return nil
 }
 
-// SetTeamPolygon устанавливает polygon_id для команды (можно передать uuid.Nil чтобы отвязать)
 func (r *Repo) SetTeamPolygon(ctx context.Context, teamID, polygonID uuid.UUID) error {
 	var pid *uuid.UUID
 	if polygonID != uuid.Nil {
@@ -295,7 +295,6 @@ func (r *Repo) GetPolygon(ctx context.Context, id uuid.UUID) (*Polygon, error) {
 	return &p, nil
 }
 
-// FindBlueTeamByPolygon возвращает синюю команду, привязанную к полигону (teams.polygon_id=id AND type=BLUE)
 func (r *Repo) FindBlueTeamByPolygon(ctx context.Context, polygonID uuid.UUID) (*Team, error) {
 	row := r.pool.QueryRow(ctx, `select id, name, type from teams where polygon_id=$1 and type=1 limit 1`, polygonID)
 	var t Team
@@ -308,11 +307,11 @@ func (r *Repo) FindBlueTeamByPolygon(ctx context.Context, polygonID uuid.UUID) (
 	return &t, nil
 }
 
-func (r *Repo) CreateIncident(ctx context.Context, id, polygonID uuid.UUID, name, description string) error {
-	_, err := r.pool.Exec(ctx, `insert into incidents(id,polygon_id,name,description) values ($1,$2,$3,$4)`, id, polygonID, name, description)
+func (r *Repo) CreateIncident(ctx context.Context, id, polygonID uuid.UUID, name, description string, basePrize int64, blueSharePercent int) error {
+	_, err := r.pool.Exec(ctx, `insert into incidents(id,polygon_id,name,description,base_prize,blue_share_percent) values ($1,$2,$3,$4,$5,$6)`, id, polygonID, name, description, basePrize, blueSharePercent)
 	return err
 }
-func (r *Repo) UpdateIncident(ctx context.Context, id uuid.UUID, name, description *string) error {
+func (r *Repo) UpdateIncident(ctx context.Context, id uuid.UUID, name, description *string, basePrize *int64, blueSharePercent *int) error {
 	sets := []string{}
 	args := []any{}
 	idx := 1
@@ -324,6 +323,16 @@ func (r *Repo) UpdateIncident(ctx context.Context, id uuid.UUID, name, descripti
 	if description != nil && *description != "" {
 		sets = append(sets, "description=$"+strconv.Itoa(idx))
 		args = append(args, *description)
+		idx++
+	}
+	if basePrize != nil {
+		sets = append(sets, "base_prize=$"+strconv.Itoa(idx))
+		args = append(args, *basePrize)
+		idx++
+	}
+	if blueSharePercent != nil {
+		sets = append(sets, "blue_share_percent=$"+strconv.Itoa(idx))
+		args = append(args, *blueSharePercent)
 		idx++
 	}
 	if len(sets) == 0 {
@@ -351,16 +360,16 @@ func (r *Repo) DeleteIncident(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 func (r *Repo) GetIncident(ctx context.Context, id uuid.UUID) (*Incident, error) {
-	row := r.pool.QueryRow(ctx, `select id, name, description from incidents where id=$1`, id)
+	row := r.pool.QueryRow(ctx, `select id, name, description, base_prize, blue_share_percent from incidents where id=$1`, id)
 	var in Incident
-	if err := row.Scan(&in.ID, &in.Name, &in.Description); err != nil {
+	if err := row.Scan(&in.ID, &in.Name, &in.Description, &in.BasePrize, &in.BlueSharePercent); err != nil {
 		return nil, err
 	}
 	return &in, nil
 }
 
-func (r *Repo) InsertReport(ctx context.Context, id, incidentID, teamID uuid.UUID, status int32, reportTime int32) error {
-	_, err := r.pool.Exec(ctx, `insert into reports(id,incident_id,team_id,status,time) values ($1,$2,$3,$4,$5)`, id, incidentID, teamID, status, reportTime)
+func (r *Repo) InsertReport(ctx context.Context, id, incidentID, teamID uuid.UUID, redTeamReportID *uuid.UUID, status int32, reportTime int32) error {
+	_, err := r.pool.Exec(ctx, `insert into reports(id,incident_id,team_id,red_team_report_id,status,time) values ($1,$2,$3,$4,$5,$6)`, id, incidentID, teamID, redTeamReportID, status, reportTime)
 	return err
 }
 func (r *Repo) InsertReportSteps(ctx context.Context, reportID uuid.UUID, steps []ReportStep) error {
@@ -372,9 +381,9 @@ func (r *Repo) InsertReportSteps(ctx context.Context, reportID uuid.UUID, steps 
 	return br.Close()
 }
 func (r *Repo) GetReport(ctx context.Context, id uuid.UUID) (*Report, error) {
-	row := r.pool.QueryRow(ctx, `select id, incident_id, team_id, status, coalesce(rejection_reason,''), time, created_at, updated_at from reports where id=$1`, id)
+	row := r.pool.QueryRow(ctx, `select id, incident_id, team_id, red_team_report_id, status, coalesce(rejection_reason,''), time, created_at, updated_at from reports where id=$1`, id)
 	var rp Report
-	if err := row.Scan(&rp.ID, &rp.IncidentID, &rp.TeamID, &rp.Status, &rp.RejectionReason, &rp.Time, &rp.CreatedAt, &rp.UpdatedAt); err != nil {
+	if err := row.Scan(&rp.ID, &rp.IncidentID, &rp.TeamID, &rp.RedTeamReportID, &rp.Status, &rp.RejectionReason, &rp.Time, &rp.CreatedAt, &rp.UpdatedAt); err != nil {
 		return nil, err
 	}
 	rows, err := r.pool.Query(ctx, `select id, number, coalesce(name,''), coalesce(time,0), coalesce(description,''), coalesce(target,''), coalesce(source,''), coalesce(result,'') from report_steps where report_id=$1 order by number`, id)
@@ -393,7 +402,7 @@ func (r *Repo) GetReport(ctx context.Context, id uuid.UUID) (*Report, error) {
 }
 
 func (r *Repo) ListTeamReports(ctx context.Context, teamID uuid.UUID) ([]Report, error) {
-	rows, err := r.pool.Query(ctx, `select id, incident_id, team_id, status, coalesce(rejection_reason,''), time, created_at, updated_at from reports where team_id=$1 order by created_at desc`, teamID)
+	rows, err := r.pool.Query(ctx, `select id, incident_id, team_id, red_team_report_id, status, coalesce(rejection_reason,''), time, created_at, updated_at from reports where team_id=$1 order by created_at desc`, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +410,7 @@ func (r *Repo) ListTeamReports(ctx context.Context, teamID uuid.UUID) ([]Report,
 	var res []Report
 	for rows.Next() {
 		var rp Report
-		if err := rows.Scan(&rp.ID, &rp.IncidentID, &rp.TeamID, &rp.Status, &rp.RejectionReason, &rp.Time, &rp.CreatedAt, &rp.UpdatedAt); err != nil {
+		if err := rows.Scan(&rp.ID, &rp.IncidentID, &rp.TeamID, &rp.RedTeamReportID, &rp.Status, &rp.RejectionReason, &rp.Time, &rp.CreatedAt, &rp.UpdatedAt); err != nil {
 			return nil, err
 		}
 		stRows, err := r.pool.Query(ctx, `select id, number, coalesce(name,''), coalesce(time,0), coalesce(description,''), coalesce(target,''), coalesce(source,''), coalesce(result,'') from report_steps where report_id=$1 order by number`, rp.ID)
@@ -513,13 +522,13 @@ func (r *Repo) ListPolygonsWithIncidents(ctx context.Context) ([]PolygonWithInci
 		return nil, rows.Err()
 	}
 	for i := range polys {
-		ir, err := r.pool.Query(ctx, `select id, name, description from incidents where polygon_id=$1 order by created_at`, polys[i].ID)
+		ir, err := r.pool.Query(ctx, `select id, name, description, base_prize, blue_share_percent from incidents where polygon_id=$1 order by created_at`, polys[i].ID)
 		if err != nil {
 			return nil, err
 		}
 		for ir.Next() {
 			var in Incident
-			if err := ir.Scan(&in.ID, &in.Name, &in.Description); err != nil {
+			if err := ir.Scan(&in.ID, &in.Name, &in.Description, &in.BasePrize, &in.BlueSharePercent); err != nil {
 				ir.Close()
 				return nil, err
 			}
@@ -530,7 +539,7 @@ func (r *Repo) ListPolygonsWithIncidents(ctx context.Context) ([]PolygonWithInci
 	return polys, nil
 }
 func (r *Repo) ListIncidents(ctx context.Context, polygonID uuid.UUID) ([]Incident, error) {
-	rows, err := r.pool.Query(ctx, `select id, name, description from incidents where polygon_id=$1 order by created_at`, polygonID)
+	rows, err := r.pool.Query(ctx, `select id, name, description, base_prize, blue_share_percent from incidents where polygon_id=$1 order by created_at`, polygonID)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +547,7 @@ func (r *Repo) ListIncidents(ctx context.Context, polygonID uuid.UUID) ([]Incide
 	res := []Incident{}
 	for rows.Next() {
 		var in Incident
-		if err := rows.Scan(&in.ID, &in.Name, &in.Description); err != nil {
+		if err := rows.Scan(&in.ID, &in.Name, &in.Description, &in.BasePrize, &in.BlueSharePercent); err != nil {
 			return nil, err
 		}
 		res = append(res, in)
@@ -573,6 +582,7 @@ type Report struct {
 	ID              uuid.UUID
 	IncidentID      uuid.UUID
 	TeamID          uuid.UUID
+	RedTeamReportID *uuid.UUID
 	Status          int32
 	RejectionReason string
 	Time            int32
@@ -610,9 +620,11 @@ type PolygonWithIncidents struct {
 }
 
 type Incident struct {
-	ID          uuid.UUID
-	Name        string
-	Description string
+	ID               uuid.UUID
+	Name             string
+	Description      string
+	BasePrize        int64
+	BlueSharePercent int
 }
 
 type InitialItem struct {
@@ -642,6 +654,78 @@ type LatestReportStatus struct {
 	CreatedAt  time.Time
 }
 
+func (r *Repo) ListReportsByIncidentsAndType(ctx context.Context, incidentIDs []uuid.UUID, teamType int32) (map[uuid.UUID][]Report, error) {
+	res := make(map[uuid.UUID][]Report)
+	if len(incidentIDs) == 0 {
+		return res, nil
+	}
+	params := make([]any, 0, len(incidentIDs)+1)
+	ph := make([]string, 0, len(incidentIDs))
+	for i, id := range incidentIDs {
+		params = append(params, id)
+		ph = append(ph, "$"+strconv.Itoa(i+1))
+	}
+	params = append(params, teamType)
+
+	q := `select r.id, r.incident_id, r.team_id, r.red_team_report_id, r.status, coalesce(r.rejection_reason,''), coalesce(r.time,0), r.created_at, r.updated_at
+		  from reports r join teams t on t.id = r.team_id
+		  where r.incident_id in (` + strings.Join(ph, ",") + `) and t.type = $` + strconv.Itoa(len(incidentIDs)+1) + `
+		  order by r.created_at desc`
+	rows, err := r.pool.Query(ctx, q, params...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	reportByID := make(map[uuid.UUID]*Report)
+	var reportIDs []uuid.UUID
+	for rows.Next() {
+		var rp Report
+		if err := rows.Scan(&rp.ID, &rp.IncidentID, &rp.TeamID, &rp.RedTeamReportID, &rp.Status, &rp.RejectionReason, &rp.Time, &rp.CreatedAt, &rp.UpdatedAt); err != nil {
+			return nil, err
+		}
+		res[rp.IncidentID] = append(res[rp.IncidentID], rp)
+		idx := len(res[rp.IncidentID]) - 1
+		reportByID[rp.ID] = &res[rp.IncidentID][idx]
+		reportIDs = append(reportIDs, rp.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(reportIDs) == 0 {
+		return res, nil
+	}
+	
+	params = params[:0]
+	ph = ph[:0]
+	for i, id := range reportIDs {
+		params = append(params, id)
+		ph = append(ph, "$"+strconv.Itoa(i+1))
+	}
+	stq := `select report_id, id, number, coalesce(name,''), coalesce(time,0), coalesce(description,''), coalesce(target,''), coalesce(source,''), coalesce(result,'')
+			from report_steps where report_id in (` + strings.Join(ph, ",") + `)
+			order by report_id, number`
+	stRows, err := r.pool.Query(ctx, stq, params...)
+	if err != nil {
+		return nil, err
+	}
+	defer stRows.Close()
+	for stRows.Next() {
+		var rid uuid.UUID
+		var s ReportStep
+		if err := stRows.Scan(&rid, &s.ID, &s.Number, &s.Name, &s.Time, &s.Description, &s.Target, &s.Source, &s.Result); err != nil {
+			return nil, err
+		}
+		if rp := reportByID[rid]; rp != nil {
+			rp.Steps = append(rp.Steps, s)
+		}
+	}
+	if err := stRows.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 func (r *Repo) GetLatestReportStatusForTeam(ctx context.Context, incidentID, teamID uuid.UUID) (int32, error) {
 	row := r.pool.QueryRow(ctx, `select status from reports where incident_id=$1 and team_id=$2 order by created_at desc limit 1`, incidentID, teamID)
 	var st int32
@@ -651,8 +735,6 @@ func (r *Repo) GetLatestReportStatusForTeam(ctx context.Context, incidentID, tea
 	return st, nil
 }
 
-// GetLatestReportForTeam возвращает статус и причину отклонения последнего отчёта команды по инциденту.
-// Если отчётов нет — возвращает pgx.ErrNoRows.
 func (r *Repo) GetLatestReportForTeam(ctx context.Context, incidentID, teamID uuid.UUID) (int32, *string, error) {
 	row := r.pool.QueryRow(ctx, `select status, rejection_reason from reports where incident_id=$1 and team_id=$2 order by created_at desc limit 1`, incidentID, teamID)
 	var st int32
@@ -661,6 +743,17 @@ func (r *Repo) GetLatestReportForTeam(ctx context.Context, incidentID, teamID uu
 		return 0, nil, err
 	}
 	return st, reason, nil
+}
+
+func (r *Repo) GetLatestReportMetaForTeam(ctx context.Context, incidentID, teamID uuid.UUID) (uuid.UUID, int32, *string, error) {
+	row := r.pool.QueryRow(ctx, `select id, status, rejection_reason from reports where incident_id=$1 and team_id=$2 order by created_at desc limit 1`, incidentID, teamID)
+	var rid uuid.UUID
+	var st int32
+	var reason *string
+	if err := row.Scan(&rid, &st, &reason); err != nil {
+		return uuid.Nil, 0, nil, err
+	}
+	return rid, st, reason, nil
 }
 
 func (r *Repo) GetLatestReportStatusesByType(ctx context.Context, incidentIDs []uuid.UUID, teamType int32) ([]LatestReportStatus, error) {
@@ -752,6 +845,104 @@ func (r *Repo) ListUserTeams(ctx context.Context, userID uuid.UUID) ([]Team, err
 	}
 	return res, rows.Err()
 }
+
+func (r *Repo) ListTeamUserIDs(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.pool.Query(ctx, `select user_id from team_users where team_id=$1`, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (r *Repo) ListTeamPrizes(ctx context.Context) (map[uuid.UUID]int64, error) {
+	res := make(map[uuid.UUID]int64)
+	blueIncRows, err := r.pool.Query(ctx, `select distinct r.incident_id
+		from reports r join teams t on t.id=r.team_id
+		where r.status=2 and t.type=1`)
+	if err != nil {
+		return nil, err
+	}
+	blueDefended := map[uuid.UUID]struct{}{}
+	for blueIncRows.Next() {
+		var iid uuid.UUID
+		if err := blueIncRows.Scan(&iid); err != nil {
+			blueIncRows.Close()
+			return nil, err
+		}
+		blueDefended[iid] = struct{}{}
+	}
+	blueIncRows.Close()
+	if err := blueIncRows.Err(); err != nil {
+		return nil, err
+	}
+
+	redRows, err := r.pool.Query(ctx, `select r.team_id, r.incident_id, i.base_prize, i.blue_share_percent
+		from reports r
+		join teams t on t.id=r.team_id
+		join incidents i on i.id=r.incident_id
+		where r.status=2 and t.type=0`)
+	if err != nil {
+		return nil, err
+	}
+	for redRows.Next() {
+		var teamID, incID uuid.UUID
+		var base int64
+		var pct int
+		if err := redRows.Scan(&teamID, &incID, &base, &pct); err != nil {
+			redRows.Close()
+			return nil, err
+		}
+		delta := base
+		if _, defended := blueDefended[incID]; defended && pct > 0 {
+			share := (base * int64(pct)) / 100
+			if share < delta {
+				delta -= share
+			} else {
+				delta = 0
+			}
+		}
+		res[teamID] += delta
+	}
+	redRows.Close()
+	if err := redRows.Err(); err != nil {
+		return nil, err
+	}
+
+	blueRows, err := r.pool.Query(ctx, `select r.team_id, i.base_prize, i.blue_share_percent
+		from reports r
+		join teams t on t.id=r.team_id
+		join incidents i on i.id=r.incident_id
+		where r.status=2 and t.type=1`)
+	if err != nil {
+		return nil, err
+	}
+	for blueRows.Next() {
+		var teamID uuid.UUID
+		var base int64
+		var pct int
+		if err := blueRows.Scan(&teamID, &base, &pct); err != nil {
+			blueRows.Close()
+			return nil, err
+		}
+		if pct > 0 {
+			res[teamID] += (base * int64(pct)) / 100
+		}
+	}
+	blueRows.Close()
+	if err := blueRows.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
 func (r *Repo) GetUserTeam(ctx context.Context, userID uuid.UUID) (*Team, error) {
 	row := r.pool.QueryRow(ctx, `select t.id, t.name, t.type from team_users tu join teams t on t.id=tu.team_id where tu.user_id=$1 limit 1`, userID)
 	var t Team
@@ -761,7 +952,6 @@ func (r *Repo) GetUserTeam(ctx context.Context, userID uuid.UUID) (*Team, error)
 	return &t, nil
 }
 
-// GetTeamPolygonID возвращает polygon_id, привязанный к команде (для синих команд)
 func (r *Repo) GetTeamPolygonID(ctx context.Context, teamID uuid.UUID) (uuid.UUID, error) {
 	row := r.pool.QueryRow(ctx, `select coalesce(polygon_id, '00000000-0000-0000-0000-000000000000') from teams where id=$1`, teamID)
 	var pid uuid.UUID
@@ -774,7 +964,6 @@ func (r *Repo) GetTeamPolygonID(ctx context.Context, teamID uuid.UUID) (uuid.UUI
 	return pid, nil
 }
 
-// AcceptedRedReportSummary — краткое представление принятого red отчёта для формирования IncidentBlueView.
 type AcceptedRedReportSummary struct {
 	ReportID            uuid.UUID
 	IncidentID          uuid.UUID
@@ -782,9 +971,10 @@ type AcceptedRedReportSummary struct {
 	IncidentDescription string
 	TeamID              uuid.UUID
 	Time                int32
+	BasePrize           int64
+	BlueSharePercent    int
 }
 
-// ListAcceptedRedReports возвращает принятые отчёты красных команд по набору инцидентов.
 func (r *Repo) ListAcceptedRedReports(ctx context.Context, incidentIDs []uuid.UUID) ([]AcceptedRedReportSummary, error) {
 	if len(incidentIDs) == 0 {
 		return nil, nil
@@ -795,15 +985,14 @@ func (r *Repo) ListAcceptedRedReports(ctx context.Context, incidentIDs []uuid.UU
 		params = append(params, id)
 		ph = append(ph, "$"+strconv.Itoa(i+1))
 	}
-	// status=2 (ACCEPTED), type=RED(0)
 	params = append(params, int32(2))
 	params = append(params, int32(0))
-	q := `select r.id, r.incident_id, i.name, i.description, r.team_id, r.time
+	q := `select r.id, r.incident_id, i.name, i.description, r.team_id, r.time, i.base_prize, i.blue_share_percent
 		  from reports r
 		  join incidents i on i.id=r.incident_id
 		  join teams t on t.id=r.team_id
 		  where r.incident_id in (` + strings.Join(ph, ",") + `) and r.status=$` + strconv.Itoa(len(incidentIDs)+1) + ` and t.type=$` + strconv.Itoa(len(incidentIDs)+2) + `
-		  order by r.created_at` // можно оптимизировать под нужный порядок
+		  order by r.created_at`
 	rows, err := r.pool.Query(ctx, q, params...)
 	if err != nil {
 		return nil, err
@@ -812,7 +1001,7 @@ func (r *Repo) ListAcceptedRedReports(ctx context.Context, incidentIDs []uuid.UU
 	var res []AcceptedRedReportSummary
 	for rows.Next() {
 		var a AcceptedRedReportSummary
-		if err := rows.Scan(&a.ReportID, &a.IncidentID, &a.IncidentName, &a.IncidentDescription, &a.TeamID, &a.Time); err != nil {
+		if err := rows.Scan(&a.ReportID, &a.IncidentID, &a.IncidentName, &a.IncidentDescription, &a.TeamID, &a.Time, &a.BasePrize, &a.BlueSharePercent); err != nil {
 			return nil, err
 		}
 		res = append(res, a)

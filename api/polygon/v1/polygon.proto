@@ -38,19 +38,17 @@ message Polygon {
   Team blue_team = 6; // привязанная синяя команда (по ее id). Может быть пусто.
 }
 
-
 // Incident — полный инцидент с отчетами обеих команд и победителями.
 // red_reports / blue_reports — отчеты соответствующих команд; red_winner/blue_winner — победившие команды.
 message Incident {
   string id = 1;
   string name = 2;
   string description = 3;
+  int64 red_prize = 11; // приз для красной команды при принятии отчёта
+  int64 blue_prize_procent = 12; // процент (0-100) от red_prize, начисляемый синей команде за успешную защиту
   repeated Report red_reports = 4;
   repeated Report blue_reports = 5;
-  repeated Team red_winner = 6;
-  repeated Team blue_winner = 7;
 }
-
 
 // Report — отчет команды по инциденту.
 // steps — последовательность шагов (ReportStep); time — длительность / отметка.
@@ -62,6 +60,7 @@ message Report {
   int32 time = 4;
   ReportStatus status = 5;
   string rejection_reason = 6; // причина отклонения (заполняется админом при REJECTED)
+  string red_team_report_id = 8; // (для blue отчётов) id принятого red отчёта, против которого защищаются
 }
 
 // ReportStep — шаг отчета с подробностями выполнения.
@@ -110,9 +109,11 @@ message IncidentRedView {
   string id = 1;
   string name = 2;
   string description = 3;
-  int64 prize = 11; // приз для красной команды при принятии отчёта
+  int64 red_prize = 11; // приз для красной команды при принятии отчёта
+  int64 blue_prize_procent = 12; // процент (0-100) от red_prize, начисляемый синей команде за успешную защиту
   ReportStatus my_report_status = 13; // статус последнего отчёта текущей красной команды
   string my_rejection_reason = 14; // причина отклонения (если применимо)
+  string my_report_id = 15; // id последнего отчёта текущей красной команды
 }
 
 message IncidentBlueView {
@@ -122,9 +123,11 @@ message IncidentBlueView {
   Team red_team = 8; // красная команда, чей принятый отчёт является основой для защиты
   string red_team_report_id = 9; // id принятого отчёта красной команды
   int32 red_team_report_time = 10; // время реализации атаки красной команды
-  int64 prize = 11; // приз / показатель, начисляемый за успешную защиту
+  int64 red_prize = 11; // приз для красной команды при принятии отчёта
+  int64 blue_prize_procent = 12; // процент (0-100) от red_prize, начисляемый синей команде за успешную защиту
   ReportStatus my_report_status = 13; // статус последнего отчёта синей команды
   string my_rejection_reason = 14; // причина отклонения (если применимо)
+  string my_report_id = 15; // id последнего отчёта синей команды
   // Один и тот же инцидент может повторяться в списке с разными (red_team, red_team_report_id), если принято несколько red отчётов.
 }
 
@@ -184,8 +187,8 @@ message Team {
   string name = 2;
   TeamType type = 3;
   repeated users.v1.User users = 4;
+  int64 prize_total = 5; // суммарная начисленная награда (принятые отчёты)
 }
-
 
 // Запросы/ответы специализированных методов
 message GetRedPolygonsResponse {
@@ -213,7 +216,6 @@ message GetBlueIncidentsResponse {
   repeated IncidentBlueView incidents = 1;
 }
 
-
 // GetInitialItemsResponse — ответ с исходными материалами.
 message GetInitialItemsResponse {
   repeated InitialItem initialItems = 1;
@@ -223,6 +225,7 @@ message GetInitialItemsResponse {
 // incident_id — id инцидента; steps — шаги отчета.
 message SubmitReportRequest {
   string incident_id = 1;
+  string red_team_report_id = 2; // обязателен для blue команд: id принятого отчёта красной команды (из IncidentBlueView.red_team_report_id)
   repeated ReportStep steps = 3;
 }
 
@@ -321,6 +324,8 @@ message CreateIncidentRequest {
   string polygon_id = 1;
   string name = 2;
   string description = 3;
+  int64 red_prize = 4; // базовый приз для красной команды
+  int64 blue_prize_procent = 5; // процент (0-100) от red_prize, начисляемый синей команде
 }
 
 // EditIncidentRequest — редактирование инцидента.
@@ -328,6 +333,8 @@ message EditIncidentRequest {
   string id = 1;
   string name = 2;
   string description = 3;
+  int64 red_prize = 4; // новое значение приза (>0 – обновить)
+  int64 blue_prize_procent = 5; // новое значение процента (>0 – обновить)
 }
 
 // DeleteIncidentRequest — удаление инцидента.
@@ -372,7 +379,6 @@ service PolygonClientService {
     option (google.api.http) = {get: "/v1/initialItems"};
   }
 
-
   // GetRedPolygons — специализированный список полигонов для красной команды.
   rpc GetRedPolygons(google.protobuf.Empty) returns (GetRedPolygonsResponse) {
     option (google.api.http) = {get: "/v1/red/polygons"};
@@ -391,7 +397,6 @@ service PolygonClientService {
   rpc GetBlueIncidents(GetBlueIncidentsRequest) returns (GetBlueIncidentsResponse) {
     option (google.api.http) = {get: "/v1/blue/incidents"};
   }
-
 
   // SubmitReport — сдать отчет по инциденту.
   rpc SubmitReport(SubmitReportRequest) returns (Report) {
@@ -505,10 +510,6 @@ service PolygonAdminService {
       body: "*"
     };
   }
-  // ListIncidents — получить список инцидентов полигона (админ).
-  rpc ListIncidents(AdminListIncidentsRequest) returns (AdminListIncidentsResponse) {
-    option (google.api.http) = {get: "/v1/admin/polygons/{polygon_id}/incidents"};
-  }
   // EditIncident — отредактировать инцидент по id.
   rpc EditIncident(EditIncidentRequest) returns (Incident) {
     option (google.api.http) = {
@@ -595,7 +596,5 @@ message UploadInitialItemResponse {
 
 // ----- Admin listing -----
 message AdminListPolygonsResponse {
-  repeated Polygon polygons = 1; // без вложенных инцидентов (поле incidents может быть пусто)
+  repeated Polygon polygons = 1; // инциденты теперь заполняются (поле incidents содержит связанные инциденты)
 }
-message AdminListIncidentsRequest { string polygon_id = 1; }
-message AdminListIncidentsResponse { repeated Incident incidents = 1; }

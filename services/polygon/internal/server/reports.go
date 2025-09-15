@@ -41,12 +41,51 @@ func (s *PolygonServer) SubmitReport(ctx context.Context, req *pb.SubmitReportRe
 		return nil, status.Errorf(codes.Internal, "incident: %v", err)
 	}
 	tid, _ := uuid.Parse(teamID)
+	tm, err := s.repo.GetTeam(ctx, tid)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "team: %v", err)
+	}
+	var redRef *uuid.UUID
+	if tm.Type == int32(pb.TeamType_TEAM_TYPE_BLUE) {
+		if strings.TrimSpace(req.GetRedTeamReportId()) == "" {
+			return nil, status.Error(codes.InvalidArgument, "red_team_report_id required for blue team")
+		}
+		rid, err := uuid.Parse(req.GetRedTeamReportId())
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid red_team_report_id")
+		}
+		rp, err := s.repo.GetReport(ctx, rid)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, status.Error(codes.NotFound, "red report not found")
+			}
+			return nil, status.Errorf(codes.Internal, "load red report: %v", err)
+		}
+		if rp.IncidentID != incidentID {
+			return nil, status.Error(codes.InvalidArgument, "red_team_report_id incident mismatch")
+		}
+		redTeam, err := s.repo.GetTeam(ctx, rp.TeamID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "red team load: %v", err)
+		}
+		if redTeam.Type != int32(pb.TeamType_TEAM_TYPE_RED) {
+			return nil, status.Error(codes.InvalidArgument, "referenced report is not red team report")
+		}
+		if pb.ReportStatus(rp.Status) != pb.ReportStatus_REPORT_STATUS_ACCEPTED {
+			return nil, status.Error(codes.InvalidArgument, "red_team_report must be ACCEPTED")
+		}
+		redRef = &rid
+	} else {
+		if strings.TrimSpace(req.GetRedTeamReportId()) != "" {
+			return nil, status.Error(codes.InvalidArgument, "red_team_report_id must be empty for red team")
+		}
+	}
 
 	if exists, existingID, err := s.repo.ReportExistsForTeam(ctx, incidentID, tid); err == nil && exists {
 
 		rp, err2 := s.repo.GetReport(ctx, existingID)
 		if err2 == nil {
-			return toPBReport(rp), nil
+			return s.toPBReport(ctx, rp), nil
 		}
 	}
 	reportID := uuid.New()
@@ -54,7 +93,7 @@ func (s *PolygonServer) SubmitReport(ctx context.Context, req *pb.SubmitReportRe
 	for i, st := range req.GetSteps() {
 		steps = append(steps, storage.ReportStep{ID: uuid.New(), Number: int32(i + 1), Name: st.GetName(), Time: st.GetTime(), Description: st.GetDescription(), Target: st.GetTarget(), Source: st.GetSource(), Result: st.GetResult()})
 	}
-	if err := s.repo.InsertReport(ctx, reportID, incidentID, tid, int32(pb.ReportStatus_REPORT_STATUS_PENDING), storage.SumStepTime(steps)); err != nil {
+	if err := s.repo.InsertReport(ctx, reportID, incidentID, tid, redRef, int32(pb.ReportStatus_REPORT_STATUS_PENDING), storage.SumStepTime(steps)); err != nil {
 		return nil, status.Errorf(codes.Internal, "insert report: %v", err)
 	}
 	if err := s.repo.InsertReportSteps(ctx, reportID, steps); err != nil {
@@ -65,7 +104,7 @@ func (s *PolygonServer) SubmitReport(ctx context.Context, req *pb.SubmitReportRe
 		return nil, status.Errorf(codes.Internal, "reload: %v", err)
 	}
 	_ = userID
-	return toPBReport(rp), nil
+	return s.toPBReport(ctx, rp), nil
 }
 func (s *PolygonServer) UploadReportAttachment(stream pb.PolygonClientService_UploadReportAttachmentServer) error {
 	formData, err := gatewayfile.NewFormData(stream, 50*1024*1024)
@@ -171,7 +210,7 @@ func (s *PolygonServer) EditReport(ctx context.Context, req *pb.EditReportReques
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "reload: %v", err)
 	}
-	return toPBReport(rp2), nil
+	return s.toPBReport(ctx, rp2), nil
 }
 func (s *PolygonServer) GetIncidentReport(ctx context.Context, req *pb.GetIncidentReportRequest) (*pb.Report, error) {
 	if req.GetIncidentId() == "" {
@@ -196,8 +235,7 @@ func (s *PolygonServer) GetIncidentReport(ctx context.Context, req *pb.GetIncide
 		}
 		return nil, status.Errorf(codes.Internal, "get: %v", err)
 	}
-	// Преобразуем через обновлённый helper (incident_id поле)
-	return toPBReport(rp), nil
+	return s.toPBReport(ctx, rp), nil
 }
 
 func (s *PolygonServer) ReviewReport(ctx context.Context, req *pb.ReviewReportRequest) (*pb.Report, error) {
@@ -226,7 +264,7 @@ func (s *PolygonServer) ReviewReport(ctx context.Context, req *pb.ReviewReportRe
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get: %v", err)
 	}
-	return toPBReport(rp), nil
+	return s.toPBReport(ctx, rp), nil
 }
 func (s *PolygonServer) GetTeamReports(ctx context.Context, req *pb.GetTeamReportsRequest) (*pb.GetTeamReportsResponse, error) {
 	if req.GetTeamId() == "" {
@@ -242,7 +280,7 @@ func (s *PolygonServer) GetTeamReports(ctx context.Context, req *pb.GetTeamRepor
 	}
 	resp := &pb.GetTeamReportsResponse{}
 	for _, rp := range list {
-		resp.Reports = append(resp.Reports, toPBReport(&rp))
+		resp.Reports = append(resp.Reports, s.toPBReport(ctx, &rp))
 	}
 	return resp, nil
 }

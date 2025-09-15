@@ -374,35 +374,6 @@
       }
     },
     "/v1/admin/polygons/{polygonId}/incidents": {
-      "get": {
-        "summary": "ListIncidents — получить список инцидентов полигона (админ).",
-        "operationId": "PolygonAdminService_ListIncidents",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1AdminListIncidentsResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "polygonId",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "PolygonAdminService"
-        ]
-      },
       "post": {
         "summary": "----- Инциденты -----\nCreateIncident — создать инцидент внутри указанного полигона.",
         "operationId": "PolygonAdminService_CreateIncident",
@@ -1079,6 +1050,16 @@
         },
         "description": {
           "type": "string"
+        },
+        "redPrize": {
+          "type": "string",
+          "format": "int64",
+          "title": "базовый приз для красной команды"
+        },
+        "bluePrizeProcent": {
+          "type": "string",
+          "format": "int64",
+          "title": "процент (0-100) от red_prize, начисляемый синей команде"
         }
       },
       "description": "CreateIncidentRequest — создание инцидента внутри полигона."
@@ -1113,6 +1094,10 @@
     "PolygonClientServiceSubmitReportBody": {
       "type": "object",
       "properties": {
+        "redTeamReportId": {
+          "type": "string",
+          "title": "обязателен для blue команд: id принятого отчёта красной команды (из IncidentBlueView.red_team_report_id)"
+        },
         "steps": {
           "type": "array",
           "items": {
@@ -1176,18 +1161,6 @@
         }
       }
     },
-    "v1AdminListIncidentsResponse": {
-      "type": "object",
-      "properties": {
-        "incidents": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1Incident"
-          }
-        }
-      }
-    },
     "v1AdminListPolygonsResponse": {
       "type": "object",
       "properties": {
@@ -1197,7 +1170,7 @@
             "type": "object",
             "$ref": "#/definitions/v1Polygon"
           },
-          "title": "без вложенных инцидентов (поле incidents может быть пусто)"
+          "title": "инциденты теперь заполняются (поле incidents содержит связанные инциденты)"
         }
       },
       "title": "----- Admin listing -----"
@@ -1266,6 +1239,16 @@
         },
         "description": {
           "type": "string"
+        },
+        "redPrize": {
+          "type": "string",
+          "format": "int64",
+          "title": "новое значение приза (\u003e0 – обновить)"
+        },
+        "bluePrizeProcent": {
+          "type": "string",
+          "format": "int64",
+          "title": "новое значение процента (\u003e0 – обновить)"
         }
       },
       "description": "EditIncidentRequest — редактирование инцидента."
@@ -1438,6 +1421,16 @@
         "description": {
           "type": "string"
         },
+        "redPrize": {
+          "type": "string",
+          "format": "int64",
+          "title": "приз для красной команды при принятии отчёта"
+        },
+        "bluePrizeProcent": {
+          "type": "string",
+          "format": "int64",
+          "title": "процент (0-100) от red_prize, начисляемый синей команде за успешную защиту"
+        },
         "redReports": {
           "type": "array",
           "items": {
@@ -1450,20 +1443,6 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/v1Report"
-          }
-        },
-        "redWinner": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1Team"
-          }
-        },
-        "blueWinner": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1Team"
           }
         }
       },
@@ -1494,10 +1473,15 @@
           "format": "int32",
           "title": "время реализации атаки красной команды"
         },
-        "prize": {
+        "redPrize": {
           "type": "string",
           "format": "int64",
-          "title": "приз / показатель, начисляемый за успешную защиту"
+          "title": "приз для красной команды при принятии отчёта"
+        },
+        "bluePrizeProcent": {
+          "type": "string",
+          "format": "int64",
+          "title": "процент (0-100) от red_prize, начисляемый синей команде за успешную защиту"
         },
         "myReportStatus": {
           "$ref": "#/definitions/v1ReportStatus",
@@ -1506,6 +1490,10 @@
         "myRejectionReason": {
           "type": "string",
           "title": "причина отклонения (если применимо)"
+        },
+        "myReportId": {
+          "type": "string",
+          "title": "id последнего отчёта синей команды"
         }
       }
     },
@@ -1521,10 +1509,15 @@
         "description": {
           "type": "string"
         },
-        "prize": {
+        "redPrize": {
           "type": "string",
           "format": "int64",
           "title": "приз для красной команды при принятии отчёта"
+        },
+        "bluePrizeProcent": {
+          "type": "string",
+          "format": "int64",
+          "title": "процент (0-100) от red_prize, начисляемый синей команде за успешную защиту"
         },
         "myReportStatus": {
           "$ref": "#/definitions/v1ReportStatus",
@@ -1533,6 +1526,10 @@
         "myRejectionReason": {
           "type": "string",
           "title": "причина отклонения (если применимо)"
+        },
+        "myReportId": {
+          "type": "string",
+          "title": "id последнего отчёта текущей красной команды"
         }
       }
     },
@@ -1689,6 +1686,10 @@
         "rejectionReason": {
           "type": "string",
           "title": "причина отклонения (заполняется админом при REJECTED)"
+        },
+        "redTeamReportId": {
+          "type": "string",
+          "title": "(для blue отчётов) id принятого red отчёта, против которого защищаются"
         }
       },
       "description": "Report — отчет команды по инциденту.\nsteps — последовательность шагов (ReportStep); time — длительность / отметка."
@@ -1773,6 +1774,11 @@
             "type": "object",
             "$ref": "#/definitions/v1User"
           }
+        },
+        "prizeTotal": {
+          "type": "string",
+          "format": "int64",
+          "title": "суммарная начисленная награда (принятые отчёты)"
         }
       },
       "description": "Team — сущность команды.\ntype — тип (красная / синяя)."

@@ -17,45 +17,43 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// GetRedPolygons — новый метод формирования специализированного списка для красных (использует IncidentRedView)
 func (s *PolygonServer) GetRedPolygons(ctx context.Context, _ *emptypb.Empty) (*pb.GetRedPolygonsResponse, error) {
 	polys, err := s.repo.ListPolygonsWithIncidents(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list polygons: %v", err)
 	}
 	_, teamIDStr, _ := s.extractAuth(ctx)
-	if teamIDStr == "" { // анонимный / без команды
+	if teamIDStr == "" {
 		return &pb.GetRedPolygonsResponse{}, nil
 	}
-	// Получаем команду для валидации типа (если не красная — вернём пусто или ошибку?)
+	
 	if tid, err := uuid.Parse(teamIDStr); err == nil {
 		if tm, err := s.repo.GetTeam(ctx, tid); err == nil {
 			if tm.Type != int32(pb.TeamType_TEAM_TYPE_RED) {
-				// Возвращаем пусто чтобы не раскрывать структуру
 				return &pb.GetRedPolygonsResponse{}, nil
 			}
 		}
 	}
-	// Собираем ids инцидентов для получения статусов собственного отчёта
 	var allIncidentIDs []uuid.UUID
 	for _, p := range polys {
 		for _, in := range p.Incidents {
 			allIncidentIDs = append(allIncidentIDs, in.ID)
 		}
 	}
-	// Карта статусов своего последнего отчёта
 	myStatuses := map[uuid.UUID]struct {
+		id     string
 		st     pb.ReportStatus
 		reason string
 	}{}
 	if teamIDStr != "" {
 		if tid, err := uuid.Parse(teamIDStr); err == nil {
 			for _, incID := range allIncidentIDs {
-				if st, reason, err := s.repo.GetLatestReportForTeam(ctx, incID, tid); err == nil {
+				if rid, st, reason, err := s.repo.GetLatestReportMetaForTeam(ctx, incID, tid); err == nil {
 					myStatuses[incID] = struct {
+						id     string
 						st     pb.ReportStatus
 						reason string
-					}{pb.ReportStatus(st), derefOr(reason, "")}
+					}{rid.String(), pb.ReportStatus(st), derefOr(reason, "")}
 				}
 			}
 		}
@@ -65,8 +63,15 @@ func (s *PolygonServer) GetRedPolygons(ctx context.Context, _ *emptypb.Empty) (*
 		pv := &pb.PolygonRedView{Id: p.ID.String(), Name: p.Name, Description: p.Description, CoverUrl: p.CoverURL /* blue team скрыт */}
 		for _, in := range p.Incidents {
 			iv := &pb.IncidentRedView{Id: in.ID.String(), Name: in.Name, Description: in.Description}
+			if in.BasePrize > 0 {
+				iv.RedPrize = in.BasePrize
+			}
+			if in.BlueSharePercent > 0 {
+				iv.BluePrizeProcent = int64(in.BlueSharePercent)
+			}
 			if ms, ok := myStatuses[in.ID]; ok {
 				iv.MyReportStatus = ms.st
+				iv.MyReportId = ms.id
 				if ms.st == pb.ReportStatus_REPORT_STATUS_REJECTED {
 					iv.MyRejectionReason = ms.reason
 				}
@@ -78,7 +83,6 @@ func (s *PolygonServer) GetRedPolygons(ctx context.Context, _ *emptypb.Empty) (*
 	return out, nil
 }
 
-// GetBluePolygon — возвращает единый полигон синей команды. Инциденты дублируются для каждого принятого red отчёта.
 func (s *PolygonServer) GetBluePolygon(ctx context.Context, _ *emptypb.Empty) (*pb.GetBluePolygonResponse, error) {
 	_, teamIDStr, _ := s.extractAuth(ctx)
 	if teamIDStr == "" {
@@ -95,7 +99,7 @@ func (s *PolygonServer) GetBluePolygon(ctx context.Context, _ *emptypb.Empty) (*
 	if tm.Type != int32(pb.TeamType_TEAM_TYPE_BLUE) {
 		return &pb.GetBluePolygonResponse{}, nil
 	}
-	// Получаем polygon_id из команды (нужен метод/поле)
+	
 	polID, err := s.repo.GetTeamPolygonID(ctx, tid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -118,12 +122,12 @@ func (s *PolygonServer) GetBluePolygon(ctx context.Context, _ *emptypb.Empty) (*
 	for _, in := range incidents {
 		incIDs = append(incIDs, in.ID)
 	}
-	// Получаем принятые red отчёты (метод нужно будет реализовать)
+	
 	accepted, err := s.repo.ListAcceptedRedReports(ctx, incIDs)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "accepted red: %v", err)
 	}
-	// Кэш команд
+	
 	teamCache := map[uuid.UUID]*storage.Team{}
 	getTeam := func(id uuid.UUID) *storage.Team {
 		if v, ok := teamCache[id]; ok {
@@ -136,17 +140,19 @@ func (s *PolygonServer) GetBluePolygon(ctx context.Context, _ *emptypb.Empty) (*
 		teamCache[id] = t
 		return t
 	}
-	// Статусы blue отчётов по инцидентам
+	
 	myStatuses := map[uuid.UUID]struct {
+		id     string
 		st     pb.ReportStatus
 		reason string
 	}{}
 	for _, inc := range incIDs {
-		if st, reason, err := s.repo.GetLatestReportForTeam(ctx, inc, tid); err == nil {
+		if rid, st, reason, err := s.repo.GetLatestReportMetaForTeam(ctx, inc, tid); err == nil {
 			myStatuses[inc] = struct {
+				id     string
 				st     pb.ReportStatus
 				reason string
-			}{pb.ReportStatus(st), derefOr(reason, "")}
+			}{rid.String(), pb.ReportStatus(st), derefOr(reason, "")}
 		}
 	}
 	var blueTeamPB *pb.Team
@@ -154,17 +160,23 @@ func (s *PolygonServer) GetBluePolygon(ctx context.Context, _ *emptypb.Empty) (*
 		blueTeamPB = &pb.Team{Id: bt.ID.String(), Name: bt.Name, Type: pb.TeamType(bt.Type)}
 	}
 	pbPolygon := &pb.PolygonBlueView{Id: pol.ID.String(), Name: pol.Name, Description: pol.Description, CoverUrl: pol.CoverURL, BlueTeam: blueTeamPB}
-	// accepted сгруппируем по инциденту
+	
 	for _, ar := range accepted {
-		// Найти базовый инцидент
-		// prize/time можно тянуть из отчёта (time) + base_prize в будущем
+		
 		iv := &pb.IncidentBlueView{Id: ar.IncidentID.String(), Name: ar.IncidentName, Description: ar.IncidentDescription,
 			RedTeamReportId: ar.ReportID.String(), RedTeamReportTime: int32(ar.Time)}
+		if ar.BasePrize > 0 {
+			iv.RedPrize = ar.BasePrize
+		}
+		if ar.BlueSharePercent > 0 {
+			iv.BluePrizeProcent = int64(ar.BlueSharePercent)
+		}
 		if tm := getTeam(ar.TeamID); tm != nil {
 			iv.RedTeam = &pb.Team{Id: tm.ID.String(), Name: tm.Name, Type: pb.TeamType(tm.Type)}
 		}
 		if ms, ok := myStatuses[ar.IncidentID]; ok {
 			iv.MyReportStatus = ms.st
+			iv.MyReportId = ms.id
 			if ms.st == pb.ReportStatus_REPORT_STATUS_REJECTED {
 				iv.MyRejectionReason = ms.reason
 			}
@@ -174,7 +186,6 @@ func (s *PolygonServer) GetBluePolygon(ctx context.Context, _ *emptypb.Empty) (*
 	return &pb.GetBluePolygonResponse{Polygon: pbPolygon}, nil
 }
 
-// GetRedIncidents — список инцидентов по полигону для красной команды
 func (s *PolygonServer) GetRedIncidents(ctx context.Context, req *pb.GetRedIncidentsRequest) (*pb.GetRedIncidentsResponse, error) {
 	if req.GetPolygonId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "polygon_id required")
@@ -202,12 +213,19 @@ func (s *PolygonServer) GetRedIncidents(ctx context.Context, req *pb.GetRedIncid
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "incidents: %v", err)
 	}
-	// Собираем индивидуальный статус последнего отчёта
+	
 	out := &pb.GetRedIncidentsResponse{}
 	for _, in := range incidents {
 		iv := &pb.IncidentRedView{Id: in.ID.String(), Name: in.Name, Description: in.Description}
-		if st, reason, err := s.repo.GetLatestReportForTeam(ctx, in.ID, tid); err == nil {
+		if in.BasePrize > 0 {
+			iv.RedPrize = in.BasePrize
+		}
+		if in.BlueSharePercent > 0 {
+			iv.BluePrizeProcent = int64(in.BlueSharePercent)
+		}
+		if rid, st, reason, err := s.repo.GetLatestReportMetaForTeam(ctx, in.ID, tid); err == nil {
 			iv.MyReportStatus = pb.ReportStatus(st)
+			iv.MyReportId = rid.String()
 			if iv.MyReportStatus == pb.ReportStatus_REPORT_STATUS_REJECTED {
 				iv.MyRejectionReason = derefOr(reason, "")
 			}
@@ -217,7 +235,6 @@ func (s *PolygonServer) GetRedIncidents(ctx context.Context, req *pb.GetRedIncid
 	return out, nil
 }
 
-// GetBlueIncidents — список инцидентов единственного полигона синей команды (дубли по принятым red отчётам)
 func (s *PolygonServer) GetBlueIncidents(ctx context.Context, _ *pb.GetBlueIncidentsRequest) (*pb.GetBlueIncidentsResponse, error) {
 	_, teamIDStr, _ := s.extractAuth(ctx)
 	if teamIDStr == "" {
@@ -253,17 +270,19 @@ func (s *PolygonServer) GetBlueIncidents(ctx context.Context, _ *pb.GetBlueIncid
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "accepted red: %v", err)
 	}
-	// Статусы blue отчётов
+	
 	myStatuses := map[uuid.UUID]struct {
+		id     string
 		st     pb.ReportStatus
 		reason string
 	}{}
 	for _, inc := range incIDs {
-		if st, reason, err := s.repo.GetLatestReportForTeam(ctx, inc, tid); err == nil {
+		if rid, st, reason, err := s.repo.GetLatestReportMetaForTeam(ctx, inc, tid); err == nil {
 			myStatuses[inc] = struct {
+				id     string
 				st     pb.ReportStatus
 				reason string
-			}{pb.ReportStatus(st), derefOr(reason, "")}
+			}{rid.String(), pb.ReportStatus(st), derefOr(reason, "")}
 		}
 	}
 	teamCache := map[uuid.UUID]*storage.Team{}
@@ -281,11 +300,18 @@ func (s *PolygonServer) GetBlueIncidents(ctx context.Context, _ *pb.GetBlueIncid
 	out := &pb.GetBlueIncidentsResponse{}
 	for _, ar := range accepted {
 		iv := &pb.IncidentBlueView{Id: ar.IncidentID.String(), Name: ar.IncidentName, Description: ar.IncidentDescription, RedTeamReportId: ar.ReportID.String(), RedTeamReportTime: int32(ar.Time)}
+		if ar.BasePrize > 0 {
+			iv.RedPrize = ar.BasePrize
+		}
+		if ar.BlueSharePercent > 0 {
+			iv.BluePrizeProcent = int64(ar.BlueSharePercent)
+		}
 		if tm := getTeam(ar.TeamID); tm != nil {
 			iv.RedTeam = &pb.Team{Id: tm.ID.String(), Name: tm.Name, Type: pb.TeamType(tm.Type)}
 		}
 		if ms, ok := myStatuses[ar.IncidentID]; ok {
 			iv.MyReportStatus = ms.st
+			iv.MyReportId = ms.id
 			if ms.st == pb.ReportStatus_REPORT_STATUS_REJECTED {
 				iv.MyRejectionReason = ms.reason
 			}
@@ -424,7 +450,7 @@ func (s *PolygonServer) DeletePolygon(ctx context.Context, req *pb.DeletePolygon
 	return &emptypb.Empty{}, nil
 }
 
-// ListPolygons (admin) — возвращает список полигонов без инцидентов.
+
 func (s *PolygonServer) ListPolygons(ctx context.Context, _ *emptypb.Empty) (*pb.AdminListPolygonsResponse, error) {
 	polys, err := s.repo.ListPolygonsWithIncidents(ctx)
 	if err != nil {
@@ -436,27 +462,63 @@ func (s *PolygonServer) ListPolygons(ctx context.Context, _ *emptypb.Empty) (*pb
 		if bt, err := s.repo.FindBlueTeamByPolygon(ctx, p.ID); err == nil && bt != nil {
 			blueTeamPB = &pb.Team{Id: bt.ID.String(), Name: bt.Name, Type: pb.TeamType(bt.Type)}
 		}
-		resp.Polygons = append(resp.Polygons, &pb.Polygon{Id: p.ID.String(), Name: p.Name, Description: p.Description, CoverUrl: p.CoverURL, BlueTeam: blueTeamPB})
-	}
-	return resp, nil
-}
-
-// ListIncidents (admin) — список инцидентов конкретного полигона.
-func (s *PolygonServer) ListIncidents(ctx context.Context, req *pb.AdminListIncidentsRequest) (*pb.AdminListIncidentsResponse, error) {
-	if req.GetPolygonId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "polygon_id required")
-	}
-	pid, err := uuid.Parse(req.GetPolygonId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid polygon_id")
-	}
-	incs, err := s.repo.ListIncidents(ctx, pid)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list incidents: %v", err)
-	}
-	resp := &pb.AdminListIncidentsResponse{}
-	for _, in := range incs {
-		resp.Incidents = append(resp.Incidents, &pb.Incident{Id: in.ID.String(), Name: in.Name, Description: in.Description})
+		
+		incIDs := make([]uuid.UUID, 0, len(p.Incidents))
+		for _, in := range p.Incidents {
+			incIDs = append(incIDs, in.ID)
+		}
+		redReportsByIncident, err := s.repo.ListReportsByIncidentsAndType(ctx, incIDs, int32(pb.TeamType_TEAM_TYPE_RED))
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "load red reports: %v", err)
+		}
+		blueReportsByIncident, err := s.repo.ListReportsByIncidentsAndType(ctx, incIDs, int32(pb.TeamType_TEAM_TYPE_BLUE))
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "load blue reports: %v", err)
+		}
+		
+		var incs []*pb.Incident
+		for _, in := range p.Incidents {
+			toPBReports := func(list []storage.Report) []*pb.Report {
+				out := make([]*pb.Report, 0, len(list))
+				
+				teamCache := map[uuid.UUID]*pb.Team{}
+				for _, r := range list {
+					if cached, ok := teamCache[r.TeamID]; ok {
+						pbSteps := make([]*pb.ReportStep, 0, len(r.Steps))
+						for _, s := range r.Steps {
+							pbSteps = append(pbSteps, &pb.ReportStep{Id: s.ID.String(), Number: uint32(s.Number), Name: s.Name, Time: s.Time, Description: s.Description, Target: s.Target, Source: s.Source, Result: s.Result})
+						}
+						var redRef string
+						if r.RedTeamReportID != nil {
+							redRef = r.RedTeamReportID.String()
+						}
+						out = append(out, &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), Team: cached, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason, RedTeamReportId: redRef})
+						continue
+					}
+					pr := s.toPBReport(ctx, &r)
+					if pr != nil && pr.Team != nil {
+						teamCache[r.TeamID] = pr.Team
+					}
+					out = append(out, pr)
+				}
+				return out
+			}
+			inc := &pb.Incident{Id: in.ID.String(), Name: in.Name, Description: in.Description}
+			if in.BasePrize > 0 {
+				inc.RedPrize = in.BasePrize
+			}
+			if in.BlueSharePercent > 0 {
+				inc.BluePrizeProcent = int64(in.BlueSharePercent)
+			}
+			if rr := redReportsByIncident[in.ID]; len(rr) > 0 {
+				inc.RedReports = toPBReports(rr)
+			}
+			if br := blueReportsByIncident[in.ID]; len(br) > 0 {
+				inc.BlueReports = toPBReports(br)
+			}
+			incs = append(incs, inc)
+		}
+		resp.Polygons = append(resp.Polygons, &pb.Polygon{Id: p.ID.String(), Name: p.Name, Description: p.Description, CoverUrl: p.CoverURL, BlueTeam: blueTeamPB, Incidents: incs})
 	}
 	return resp, nil
 }

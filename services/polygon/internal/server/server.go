@@ -105,7 +105,7 @@ func firstNonEmpty(vals []string) string {
 	return ""
 }
 
-func toPBReport(r *storage.Report) *pb.Report {
+func (s *PolygonServer) toPBReport(ctx context.Context, r *storage.Report) *pb.Report {
 	if r == nil {
 		return nil
 	}
@@ -113,7 +113,31 @@ func toPBReport(r *storage.Report) *pb.Report {
 	for _, s := range r.Steps {
 		pbSteps = append(pbSteps, &pb.ReportStep{Id: s.ID.String(), Number: uint32(s.Number), Name: s.Name, Time: s.Time, Description: s.Description, Target: s.Target, Source: s.Source, Result: s.Result})
 	}
-	return &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), Team: &pb.Team{Id: r.TeamID.String()}, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason}
+	var redRef string
+	if r.RedTeamReportID != nil {
+		redRef = r.RedTeamReportID.String()
+	}
+	teamPB := &pb.Team{Id: r.TeamID.String()}
+	if t, err := s.repo.GetTeam(ctx, r.TeamID); err == nil && t != nil {
+		teamPB.Name = t.Name
+		teamPB.Type = pb.TeamType(t.Type)
+		if userIDs, err2 := s.repo.ListTeamUserIDs(ctx, t.ID); err2 == nil && len(userIDs) > 0 {
+			if s.usersClient != nil {
+				for _, uid := range userIDs {
+					if uResp, err3 := s.usersClient.GetUser(ctx, &upb.GetUserRequest{Id: uid.String()}); err3 == nil && uResp != nil {
+						teamPB.Users = append(teamPB.Users, uResp)
+					} else {
+						teamPB.Users = append(teamPB.Users, &upb.User{Id: uid.String()})
+					}
+				}
+			} else { 
+				for _, uid := range userIDs {
+					teamPB.Users = append(teamPB.Users, &upb.User{Id: uid.String()})
+				}
+			}
+		}
+	}
+	return &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), Team: teamPB, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason, RedTeamReportId: redRef}
 }
 
 func derefOr(p *string, def string) string {
