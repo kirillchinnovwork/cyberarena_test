@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 )
 
 type ctxKey string
@@ -49,6 +50,9 @@ func main() {
 	defer authConn.Close()
 	authClient := authv1.NewAuthClientServiceClient(authConn)
 
+	// Имя refresh-cookie можно настроить через env (должно совпадать с сервисом auth)
+	refreshCookieName := getEnv("AUTH_REFRESH_COOKIE_NAME", "refresh_token")
+
 	mux := runtime.NewServeMux(
 		gatewayfile.WithFileIncomingHeaderMatcher(),
 		gatewayfile.WithFileForwardResponseOption(),
@@ -66,10 +70,26 @@ func main() {
 			if authz := r.Header.Get("Authorization"); authz != "" {
 				md.Append("authorization", authz)
 			}
+			// Прокидываем refresh-токен из httpOnly cookie в metadata для gRPC
+			if c, err := r.Cookie(refreshCookieName); err == nil && c != nil && c.Value != "" {
+				md.Append("x-refresh-token", c.Value)
+			}
 			if len(md) == 0 {
 				return nil
 			}
 			return md
+		}),
+
+		// Форвардим Set-Cookie из gRPC в HTTP-ответ
+		runtime.WithForwardResponseOption(func(ctx context.Context, w http.ResponseWriter, _ proto.Message) error {
+			if sm, ok := runtime.ServerMetadataFromContext(ctx); ok {
+				if cookies := sm.HeaderMD.Get("set-cookie"); len(cookies) > 0 {
+					for _, c := range cookies {
+						w.Header().Add("Set-Cookie", c)
+					}
+				}
+			}
+			return nil
 		}),
 	)
 
@@ -92,7 +112,34 @@ func main() {
 	root := authMiddleware(authClient, mux)
 
 	httpAddr := getEnv("GATEWAY_HTTP_ADDR", ":8080")
-	srv := &http.Server{Addr: httpAddr, Handler: cors.AllowAll().Handler(root), ReadHeaderTimeout: 5 * time.Second}
+
+	// CORS с поддержкой cookie
+	originsCsv := getEnv("GATEWAY_CORS_ORIGINS", "") // пример: https://app.example.com,https://admin.example.com
+	allowCredsStr := getEnv("GATEWAY_CORS_ALLOW_CREDENTIALS", "true")
+	allowCreds := true
+	if allowCredsStr == "false" || allowCredsStr == "0" {
+		allowCreds = false
+	}
+	var corsHandler *cors.Cors
+	if originsCsv != "" {
+		var origins []string
+		for _, o := range strings.Split(originsCsv, ",") {
+			if s := strings.TrimSpace(o); s != "" {
+				origins = append(origins, s)
+			}
+		}
+		corsHandler = cors.New(cors.Options{
+			AllowedOrigins:   origins,
+			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept"},
+			ExposedHeaders:   []string{"Content-Type", "Content-Length", "Set-Cookie"},
+			AllowCredentials: allowCreds,
+		})
+	} else {
+		corsHandler = cors.AllowAll()
+	}
+
+	srv := &http.Server{Addr: httpAddr, Handler: corsHandler.Handler(root), ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("gateway HTTP listening on %s", httpAddr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("gateway failed: %v", err)

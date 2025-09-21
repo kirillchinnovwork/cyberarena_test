@@ -20,6 +20,8 @@ message LoginResponse {
   int64 expires_at_unix = 2; // Unix timestamp (UTC seconds) истечения токена
   string user_id = 3; // Идентификатор пользователя (subject)
   string team_id = 4; // Первая (текущая) команда пользователя, может быть пустой
+  string refresh_token = 5; // Оpaque refresh token
+  int64 refresh_expires_at_unix = 6; // Unix timestamp (UTC seconds) истечения refresh
 }
 
 // ValidateTokenRequest — запрос проверки токена.
@@ -59,6 +61,10 @@ service AuthClientService {
   rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse) {
     option (google.api.http) = { post: "/v1/auth/validate" body: "*" };
   }
+  // Refresh — обмен действительного refresh-токена на новый access + refresh.
+  rpc Refresh(RefreshTokenRequest) returns (LoginResponse) {
+    option (google.api.http) = { post: "/v1/auth/refresh" body: "*" };
+  }
 }
 
 // AuthAdminService — административные операции управления учётными данными.
@@ -72,4 +78,7 @@ service AuthAdminService {
     option (google.api.http) = { post: "/v1/admin/auth/users/{user_id}/password" body: "*" };
   }
 }
+
+// RefreshTokenRequest — запрос обновления по refresh токену.
+message RefreshTokenRequest { string refresh_token = 1; }
 

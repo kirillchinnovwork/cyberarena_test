@@ -61,6 +61,7 @@ message Report {
   ReportStatus status = 5;
   string rejection_reason = 6; // причина отклонения (заполняется админом при REJECTED)
   string red_team_report_id = 8; // (для blue отчётов) id принятого red отчёта, против которого защищаются
+  string incident_name = 9; // название инцидента (для удобной отдачи на фронт)
 }
 
 // ReportStep — шаг отчета с подробностями выполнения.
@@ -188,6 +189,19 @@ message Team {
   TeamType type = 3;
   repeated users.v1.User users = 4;
   int64 prize_total = 5; // суммарная начисленная награда (принятые отчёты)
+  repeated TeamFine fines = 6; // активные и отозванные штрафы команды
+}
+
+// TeamFine — штраф, назначенный команде администратором.
+// amount — сумма штрафа (в тех же единицах, что и prize_total); reason — причина штрафа;
+// revoked_at — время отзыва штрафа (если отозван), иначе пусто.
+message TeamFine {
+  string id = 1;
+  string team_id = 2;
+  int64 amount = 3;
+  string reason = 4;
+  string created_at = 5;
+  string revoked_at = 6; // пусто, если штраф активен
 }
 
 // Запросы/ответы специализированных методов
@@ -545,6 +559,23 @@ service PolygonAdminService {
     };
   }
 
+  // ----- Штрафы команд -----
+  // CreateTeamFine — выдать штраф команде.
+  rpc CreateTeamFine(CreateTeamFineRequest) returns (TeamFine) {
+    option (google.api.http) = {
+      post: "/v1/admin/teams/{team_id}/fines"
+      body: "*"
+    };
+  }
+  // RevokeTeamFine — отозвать ранее выданный штраф.
+  rpc RevokeTeamFine(RevokeTeamFineRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/fines/{id}"};
+  }
+  // ListTeamFines — получить список штрафов команды (включая отозванные).
+  rpc ListTeamFines(ListTeamFinesRequest) returns (ListTeamFinesResponse) {
+    option (google.api.http) = {get: "/v1/admin/teams/{team_id}/fines"};
+  }
+
   // ----- Исходные материалы -----
   rpc UploadInitialItem(stream google.api.HttpBody) returns (UploadInitialItemResponse) {
     option (google.api.http) = {
@@ -597,4 +628,20 @@ message UploadInitialItemResponse {
 // ----- Admin listing -----
 message AdminListPolygonsResponse {
   repeated Polygon polygons = 1; // инциденты теперь заполняются (поле incidents содержит связанные инциденты)
+}
+
+// ----- Запросы/ответы по штрафам -----
+message CreateTeamFineRequest {
+  string team_id = 1;
+  int64 amount = 2; // >0
+  string reason = 3; // обязательна
+}
+message RevokeTeamFineRequest {
+  string id = 1; // id штрафа
+}
+message ListTeamFinesRequest {
+  string team_id = 1;
+}
+message ListTeamFinesResponse {
+  repeated TeamFine fines = 1;
 }

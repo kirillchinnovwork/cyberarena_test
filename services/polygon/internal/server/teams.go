@@ -5,9 +5,11 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"time"
 
 	pb "gis/polygon/api/polygon/v1"
 	upb "gis/polygon/api/users/v1"
+	"gis/polygon/services/polygon/internal/storage"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -33,6 +35,11 @@ func (s *PolygonServer) GetTeams(ctx context.Context, _ *emptypb.Empty) (*pb.Get
 			pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type)}
 			if v, ok := prizes[t.ID]; ok {
 				pbTeam.PrizeTotal = v
+			}
+			if fines, err2 := s.repo.ListTeamFines(ctx, t.ID); err2 == nil {
+				for i := range fines {
+					pbTeam.Fines = append(pbTeam.Fines, toPBTeamFine(&fines[i]))
+				}
 			}
 			for _, uid := range t.UserIDs {
 				uidStr := uid.String()
@@ -78,6 +85,11 @@ func (s *PolygonServer) GetTeams(ctx context.Context, _ *emptypb.Empty) (*pb.Get
 		pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type), Users: []*upb.User{}}
 		if v, ok := prizes[t.ID]; ok {
 			pbTeam.PrizeTotal = v
+		}
+		if fines, err2 := s.repo.ListTeamFines(ctx, t.ID); err2 == nil {
+			for i := range fines {
+				pbTeam.Fines = append(pbTeam.Fines, toPBTeamFine(&fines[i]))
+			}
 		}
 		for _, uid := range t.UserIDs {
 			if u, ok := userCache[uid.String()]; ok {
@@ -196,5 +208,109 @@ func (s *PolygonServer) GetUserTeam(ctx context.Context, req *pb.GetUserTeamRequ
 		}
 		return nil, status.Errorf(codes.Internal, "get: %v", err)
 	}
-	return &pb.GetUserTeamResponse{Team: &pb.Team{Id: team.ID.String(), Name: team.Name, Type: pb.TeamType(team.Type)}}, nil
+	pbTeam := &pb.Team{Id: team.ID.String(), Name: team.Name, Type: pb.TeamType(team.Type)}
+	if fines, err2 := s.repo.ListTeamFines(ctx, team.ID); err2 == nil {
+		for i := range fines {
+			pbTeam.Fines = append(pbTeam.Fines, toPBTeamFine(&fines[i]))
+		}
+	}
+	return &pb.GetUserTeamResponse{Team: pbTeam}, nil
+}
+
+// --- Штрафы команд ---
+func (s *PolygonServer) CreateTeamFine(ctx context.Context, req *pb.CreateTeamFineRequest) (*pb.TeamFine, error) {
+	if strings.TrimSpace(req.GetTeamId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "team_id required")
+	}
+	if req.GetAmount() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "amount must be > 0")
+	}
+	if strings.TrimSpace(req.GetReason()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "reason required")
+	}
+	tid, err := uuid.Parse(req.GetTeamId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid team_id")
+	}
+	if _, err := s.repo.GetTeam(ctx, tid); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "team not found")
+		}
+		return nil, status.Errorf(codes.Internal, "get team: %v", err)
+	}
+	id := uuid.New()
+	if err := s.repo.CreateTeamFine(ctx, id, tid, req.GetAmount(), strings.TrimSpace(req.GetReason())); err != nil {
+		return nil, status.Errorf(codes.Internal, "create fine: %v", err)
+	}
+	// Возвращаем полный объект
+	fins, err := s.repo.ListTeamFines(ctx, tid)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list fines: %v", err)
+	}
+	var created *storage.TeamFine
+	for i := range fins {
+		if fins[i].ID == id {
+			created = &fins[i]
+			break
+		}
+	}
+	if created == nil {
+		// fallback
+		created = &storage.TeamFine{ID: id, TeamID: tid, Amount: req.GetAmount(), Reason: req.GetReason()}
+	}
+	return toPBTeamFine(created), nil
+}
+
+func (s *PolygonServer) RevokeTeamFine(ctx context.Context, req *pb.RevokeTeamFineRequest) (*emptypb.Empty, error) {
+	if strings.TrimSpace(req.GetId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "id required")
+	}
+	fid, err := uuid.Parse(req.GetId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid id")
+	}
+	if err := s.repo.RevokeTeamFine(ctx, fid); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "fine not found or already revoked")
+		}
+		return nil, status.Errorf(codes.Internal, "revoke: %v", err)
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (s *PolygonServer) ListTeamFines(ctx context.Context, req *pb.ListTeamFinesRequest) (*pb.ListTeamFinesResponse, error) {
+	if strings.TrimSpace(req.GetTeamId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "team_id required")
+	}
+	tid, err := uuid.Parse(req.GetTeamId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid team_id")
+	}
+	list, err := s.repo.ListTeamFines(ctx, tid)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list fines: %v", err)
+	}
+	resp := &pb.ListTeamFinesResponse{}
+	for i := range list {
+		resp.Fines = append(resp.Fines, toPBTeamFine(&list[i]))
+	}
+	return resp, nil
+}
+
+func toPBTeamFine(f *storage.TeamFine) *pb.TeamFine {
+	if f == nil {
+		return nil
+	}
+	var revoked string
+	if f.RevokedAt != nil {
+		revoked = f.RevokedAt.UTC().Format(time.RFC3339)
+	}
+	return &pb.TeamFine{
+		Id:        f.ID.String(),
+		TeamId:    f.TeamID.String(),
+		Amount:    f.Amount,
+		Reason:    f.Reason,
+		CreatedAt: f.CreatedAt.UTC().Format(time.RFC3339),
+		RevokedAt: revoked,
+	}
 }

@@ -100,6 +100,15 @@ func (r *Repo) Migrate(ctx context.Context) error {
 		`alter table initial_items add column if not exists updated_at timestamptz not null default now();`,
 		`alter table teams add column if not exists polygon_id uuid null references polygons(id) on delete set null;`,
 		`alter table reports add column if not exists red_team_report_id uuid null references reports(id) on delete set null;`,
+		`create table if not exists team_fines(
+			id uuid primary key,
+			team_id uuid not null references teams(id) on delete cascade,
+			amount bigint not null,
+			reason text not null,
+			created_at timestamptz not null default now(),
+			revoked_at timestamptz null
+		);`,
+		`create index if not exists idx_team_fines_team on team_fines(team_id);`,
 	}
 	for _, s := range stmts {
 		if _, err := r.pool.Exec(ctx, s); err != nil {
@@ -646,6 +655,15 @@ type Team struct {
 	Type int32
 }
 
+type TeamFine struct {
+	ID        uuid.UUID
+	TeamID    uuid.UUID
+	Amount    int64
+	Reason    string
+	CreatedAt time.Time
+	RevokedAt *time.Time
+}
+
 type LatestReportStatus struct {
 	IncidentID uuid.UUID
 	TeamID     uuid.UUID
@@ -676,7 +694,7 @@ func (r *Repo) ListReportsByIncidentsAndType(ctx context.Context, incidentIDs []
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	reportByID := make(map[uuid.UUID]*Report)
 	var reportIDs []uuid.UUID
 	for rows.Next() {
@@ -695,7 +713,7 @@ func (r *Repo) ListReportsByIncidentsAndType(ctx context.Context, incidentIDs []
 	if len(reportIDs) == 0 {
 		return res, nil
 	}
-	
+
 	params = params[:0]
 	ph = ph[:0]
 	for i, id := range reportIDs {
@@ -941,6 +959,24 @@ func (r *Repo) ListTeamPrizes(ctx context.Context) (map[uuid.UUID]int64, error) 
 	if err := blueRows.Err(); err != nil {
 		return nil, err
 	}
+	// Вычитаем активные штрафы
+	fineRows, err := r.pool.Query(ctx, `select team_id, amount from team_fines where revoked_at is null`)
+	if err != nil {
+		return nil, err
+	}
+	for fineRows.Next() {
+		var tid uuid.UUID
+		var amount int64
+		if err := fineRows.Scan(&tid, &amount); err != nil {
+			fineRows.Close()
+			return nil, err
+		}
+		res[tid] -= amount
+	}
+	fineRows.Close()
+	if err := fineRows.Err(); err != nil {
+		return nil, err
+	}
 	return res, nil
 }
 func (r *Repo) GetUserTeam(ctx context.Context, userID uuid.UUID) (*Team, error) {
@@ -962,6 +998,38 @@ func (r *Repo) GetTeamPolygonID(ctx context.Context, teamID uuid.UUID) (uuid.UUI
 		return uuid.Nil, nil
 	}
 	return pid, nil
+}
+
+// --- Штрафы команд ---
+func (r *Repo) CreateTeamFine(ctx context.Context, id, teamID uuid.UUID, amount int64, reason string) error {
+	_, err := r.pool.Exec(ctx, `insert into team_fines(id, team_id, amount, reason) values ($1,$2,$3,$4)`, id, teamID, amount, reason)
+	return err
+}
+func (r *Repo) RevokeTeamFine(ctx context.Context, id uuid.UUID) error {
+	ct, err := r.pool.Exec(ctx, `update team_fines set revoked_at=now() where id=$1 and revoked_at is null`, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+func (r *Repo) ListTeamFines(ctx context.Context, teamID uuid.UUID) ([]TeamFine, error) {
+	rows, err := r.pool.Query(ctx, `select id, team_id, amount, reason, created_at, revoked_at from team_fines where team_id=$1 order by created_at desc`, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var res []TeamFine
+	for rows.Next() {
+		var f TeamFine
+		if err := rows.Scan(&f.ID, &f.TeamID, &f.Amount, &f.Reason, &f.CreatedAt, &f.RevokedAt); err != nil {
+			return nil, err
+		}
+		res = append(res, f)
+	}
+	return res, rows.Err()
 }
 
 type AcceptedRedReportSummary struct {

@@ -130,14 +130,19 @@ func (s *PolygonServer) toPBReport(ctx context.Context, r *storage.Report) *pb.R
 						teamPB.Users = append(teamPB.Users, &upb.User{Id: uid.String()})
 					}
 				}
-			} else { 
+			} else {
 				for _, uid := range userIDs {
 					teamPB.Users = append(teamPB.Users, &upb.User{Id: uid.String()})
 				}
 			}
 		}
 	}
-	return &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), Team: teamPB, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason, RedTeamReportId: redRef}
+	// Загружаем название инцидента для удобства фронта
+	var incidentName string
+	if in, err := s.repo.GetIncident(ctx, r.IncidentID); err == nil && in != nil {
+		incidentName = in.Name
+	}
+	return &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), IncidentName: incidentName, Team: teamPB, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason, RedTeamReportId: redRef}
 }
 
 func derefOr(p *string, def string) string {

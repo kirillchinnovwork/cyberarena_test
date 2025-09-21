@@ -23,12 +23,26 @@ func main() {
 	pgDSN := getEnv("AUTH_PG_DSN", "postgres://postgres:postgres@postgres:5432/news?sslmode=disable")
 	jwtSecret := getEnv("AUTH_JWT_SECRET", "dev-secret")
 	jwtTTLStr := getEnv("AUTH_JWT_TTL", "1h")
+	refreshTTLStr := getEnv("AUTH_REFRESH_TTL", "720h") // 30 дней по умолчанию
 	usersAddr := getEnv("USERS_GRPC_ADDR", "users:50051")
 	polygonAddr := getEnv("POLYGON_GRPC_ADDR", "polygon:50054")
 
 	jwtTTL, err := time.ParseDuration(jwtTTLStr)
 	if err != nil {
 		log.Fatalf("parse AUTH_JWT_TTL: %v", err)
+	}
+	refreshTTL, err := time.ParseDuration(refreshTTLStr)
+	if err != nil {
+		log.Fatalf("parse AUTH_REFRESH_TTL: %v", err)
+	}
+
+	// Cookie config for refresh token
+	cookieName := getEnv("AUTH_REFRESH_COOKIE_NAME", "refresh_token")
+	cookieDomain := getEnv("AUTH_REFRESH_COOKIE_DOMAIN", "")
+	cookieSecureStr := getEnv("AUTH_REFRESH_COOKIE_SECURE", "true")
+	cookieSecure := true
+	if cookieSecureStr == "false" || cookieSecureStr == "0" {
+		cookieSecure = false
 	}
 
 	pool, err := pgxpool.New(ctx, pgDSN)
@@ -55,7 +69,7 @@ func main() {
 	defer polygonConn.Close()
 	polygonClient := polygonv1.NewPolygonClientServiceClient(polygonConn)
 
-	srv := server.New(pool, usersAdminClient, polygonClient, []byte(jwtSecret), jwtTTL)
+	srv := server.New(pool, usersAdminClient, polygonClient, []byte(jwtSecret), jwtTTL, refreshTTL, cookieName, cookieDomain, cookieSecure)
 
 	if err := server.RunGRPC(grpcAddr, srv); err != nil {
 		log.Fatalf("auth grpc: %v", err)

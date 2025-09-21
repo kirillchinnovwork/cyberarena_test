@@ -127,6 +127,40 @@
         ]
       }
     },
+    "/v1/auth/refresh": {
+      "post": {
+        "summary": "Refresh — обмен действительного refresh-токена на новый access + refresh.",
+        "operationId": "AuthClientService_Refresh",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1LoginResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "RefreshTokenRequest — запрос обновления по refresh токену.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1RefreshTokenRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AuthClientService"
+        ]
+      }
+    },
     "/v1/auth/validate": {
       "post": {
         "summary": "ValidateToken — валидация токена, возвращает user_id.",
@@ -269,9 +303,27 @@
         "teamId": {
           "type": "string",
           "title": "Первая (текущая) команда пользователя, может быть пустой"
+        },
+        "refreshToken": {
+          "type": "string",
+          "title": "Оpaque refresh token"
+        },
+        "refreshExpiresAtUnix": {
+          "type": "string",
+          "format": "int64",
+          "title": "Unix timestamp (UTC seconds) истечения refresh"
         }
       },
       "description": "LoginResponse — ответ с access token."
+    },
+    "v1RefreshTokenRequest": {
+      "type": "object",
+      "properties": {
+        "refreshToken": {
+          "type": "string"
+        }
+      },
+      "description": "RefreshTokenRequest — запрос обновления по refresh токену."
     },
     "v1ValidateTokenRequest": {
       "type": "object",

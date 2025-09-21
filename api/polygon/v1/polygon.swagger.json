@@ -19,6 +19,39 @@
     "application/json"
   ],
   "paths": {
+    "/v1/admin/fines/{id}": {
+      "delete": {
+        "summary": "RevokeTeamFine — отозвать ранее выданный штраф.",
+        "operationId": "PolygonAdminService_RevokeTeamFine",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "description": "id штрафа",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      }
+    },
     "/v1/admin/incidents": {
       "patch": {
         "summary": "EditIncident — отредактировать инцидент по id.",
@@ -549,6 +582,74 @@
         ]
       }
     },
+    "/v1/admin/teams/{teamId}/fines": {
+      "get": {
+        "summary": "ListTeamFines — получить список штрафов команды (включая отозванные).",
+        "operationId": "PolygonAdminService_ListTeamFines",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListTeamFinesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      },
+      "post": {
+        "summary": "----- Штрафы команд -----\nCreateTeamFine — выдать штраф команде.",
+        "operationId": "PolygonAdminService_CreateTeamFine",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TeamFine"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PolygonAdminServiceCreateTeamFineBody"
+            }
+          }
+        ],
+        "tags": [
+          "PolygonAdminService"
+        ]
+      }
+    },
     "/v1/admin/teams/{teamId}/reports": {
       "get": {
         "summary": "GetTeamReports — получить все отчёты конкретной команды по всем инцидентам.",
@@ -1064,6 +1165,21 @@
       },
       "description": "CreateIncidentRequest — создание инцидента внутри полигона."
     },
+    "PolygonAdminServiceCreateTeamFineBody": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "\u003e0"
+        },
+        "reason": {
+          "type": "string",
+          "title": "обязательна"
+        }
+      },
+      "title": "----- Запросы/ответы по штрафам -----"
+    },
     "PolygonAdminServiceReviewReportBody": {
       "type": "object",
       "properties": {
@@ -1558,6 +1674,18 @@
       },
       "description": "InitialItem — элемент исходных материалов, доступных участникам.\nid — идентификатор; name — название; description — описание; files_urls — URLs файлов."
     },
+    "v1ListTeamFinesResponse": {
+      "type": "object",
+      "properties": {
+        "fines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1TeamFine"
+          }
+        }
+      }
+    },
     "v1Polygon": {
       "type": "object",
       "properties": {
@@ -1690,6 +1818,10 @@
         "redTeamReportId": {
           "type": "string",
           "title": "(для blue отчётов) id принятого red отчёта, против которого защищаются"
+        },
+        "incidentName": {
+          "type": "string",
+          "title": "название инцидента (для удобной отдачи на фронт)"
         }
       },
       "description": "Report — отчет команды по инциденту.\nsteps — последовательность шагов (ReportStep); time — длительность / отметка."
@@ -1779,9 +1911,43 @@
           "type": "string",
           "format": "int64",
           "title": "суммарная начисленная награда (принятые отчёты)"
+        },
+        "fines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1TeamFine"
+          },
+          "title": "активные и отозванные штрафы команды"
         }
       },
       "description": "Team — сущность команды.\ntype — тип (красная / синяя)."
+    },
+    "v1TeamFine": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "teamId": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "revokedAt": {
+          "type": "string",
+          "title": "пусто, если штраф активен"
+        }
+      },
+      "description": "TeamFine — штраф, назначенный команде администратором.\namount — сумма штрафа (в тех же единицах, что и prize_total); reason — причина штрафа;\nrevoked_at — время отзыва штрафа (если отозван), иначе пусто."
     },
     "v1TeamType": {
       "type": "string",
