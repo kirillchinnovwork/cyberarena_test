@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package external.v1;
+
+option go_package = "gis/polygon/api/external/v1;pb";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+
+enum JobType {
+  JOB_TYPE_UNSPECIFIED = 0;
+  JOB_TYPE_JENKINS = 1;
+  JOB_TYPE_TERRAFORM = 2;
+  JOB_TYPE_ANSIBLE = 3;
+}
+
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_SUCCESS = 3;
+  JOB_STATUS_FAILED = 4;
+  JOB_STATUS_CANCELLED = 5;
+}
+
+message Job {
+  string id = 1;
+  string external_id = 2;
+  JobType type = 3;
+  JobStatus status = 4;
+  string name = 5;
+  google.protobuf.Struct params = 6;
+  string created_at = 7;
+  string started_at = 8;
+  string finished_at = 9;
+  string error_message = 10;
+}
+
+message JobLog {
+  string job_id = 1;
+  string content = 2;
+  int64 offset = 3;
+  bool more_available = 4;
+}
+
+message RunJenkinsJobRequest {
+  string job_name = 1;
+  google.protobuf.Struct params = 2;
+}
+
+message RunTerraformRequest {
+  string workspace = 1;
+  string action = 2;
+  google.protobuf.Struct vars = 3;
+}
+
+message RunAnsibleRequest {
+  int32 project_id = 1;
+  int32 template_id = 2;
+  google.protobuf.Struct extra_vars = 3;
+}
+
+message GetJobStatusRequest {
+  string job_id = 1;
+  JobType type = 2;
+}
+
+message GetJobLogsRequest {
+  string job_id = 1;
+  JobType type = 2;
+  int64 offset = 3;
+}
+
+message CancelJobRequest {
+  string job_id = 1;
+  JobType type = 2;
+}
+
+message ListJobsRequest {
+  JobType type = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListJobsResponse {
+  repeated Job jobs = 1;
+  int32 total = 2;
+}
+
+service ExternalControllerService {
+  rpc RunJenkinsJob(RunJenkinsJobRequest) returns (Job) {
+    option (google.api.http) = {
+      post: "/v1/admin/external/jenkins/run"
+      body: "*"
+    };
+  }
+
+  rpc RunTerraform(RunTerraformRequest) returns (Job) {
+    option (google.api.http) = {
+      post: "/v1/admin/external/terraform/run"
+      body: "*"
+    };
+  }
+
+  rpc RunAnsible(RunAnsibleRequest) returns (Job) {
+    option (google.api.http) = {
+      post: "/v1/admin/external/ansible/run"
+      body: "*"
+    };
+  }
+
+  rpc GetJobStatus(GetJobStatusRequest) returns (Job) {
+    option (google.api.http) = {
+      get: "/v1/admin/external/jobs/{job_id}/status"
+    };
+  }
+
+  rpc GetJobLogs(GetJobLogsRequest) returns (JobLog) {
+    option (google.api.http) = {
+      get: "/v1/admin/external/jobs/{job_id}/logs"
+    };
+  }
+
+  rpc CancelJob(CancelJobRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/v1/admin/external/jobs/{job_id}/cancel"
+      body: "*"
+    };
+  }
+
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/external/jobs"
+    };
+  }
+}

@@ -54,7 +54,7 @@ func (u *UsersServer) CreateUser(ctx context.Context, request *usersv1.CreateUse
 	if name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name required")
 	}
-	
+
 	var dummy int
 	err := u.pool.QueryRow(ctx, `select 1 from users where name=$1 limit 1`, name).Scan(&dummy)
 	if err == nil {
@@ -120,7 +120,7 @@ func (u *UsersServer) EditUser(ctx context.Context, request *usersv1.EditUserReq
 	if request.GetId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "id required")
 	}
-	
+
 	sets := []string{}
 	args := []any{}
 	idx := 1
@@ -129,7 +129,7 @@ func (u *UsersServer) EditUser(ctx context.Context, request *usersv1.EditUserReq
 		if newName == "" {
 			return nil, status.Error(codes.InvalidArgument, "name required")
 		}
-		
+
 		var dummy int
 		err := u.pool.QueryRow(ctx, `select 1 from users where name=$1 and id<>$2 limit 1`, newName, request.GetId()).Scan(&dummy)
 		if err == nil {
@@ -142,7 +142,7 @@ func (u *UsersServer) EditUser(ctx context.Context, request *usersv1.EditUserReq
 		idx++
 	}
 	if len(request.Avatar) > 0 && u.s3 != nil {
-		
+
 		var oldKey string
 		_ = u.pool.QueryRow(ctx, `select avatar_key from users where id=$1`, request.GetId()).Scan(&oldKey)
 		ct := http.DetectContentType(request.Avatar)
@@ -213,6 +213,27 @@ func (u *UsersServer) GetCurrentUser(ctx context.Context, _ *emptypb.Empty) (*us
 		return nil, err
 	}
 	return u.GetUser(ctx, &usersv1.GetUserRequest{Id: uid})
+}
+
+// DeleteUser — удалить пользователя и, при наличии, его аватар из S3.
+func (u *UsersServer) DeleteUser(ctx context.Context, request *usersv1.DeleteUserRequest) (*emptypb.Empty, error) {
+	if request.GetId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "id required")
+	}
+	var avatarKey string
+	// Удаляем пользователя, сразу получая avatar_key для дальнейшей очистки хранилища.
+	err := u.pool.QueryRow(ctx, `delete from users where id=$1 returning coalesce(avatar_key,'')`, request.GetId()).Scan(&avatarKey)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "user not found")
+		}
+		return nil, status.Errorf(codes.Internal, "delete: %v", err)
+	}
+	if avatarKey != "" && u.s3 != nil {
+		// Логическая ошибка удаления аватара не должна ломать весь запрос.
+		_ = u.s3.DeleteObject(ctx, avatarKey)
+	}
+	return &emptypb.Empty{}, nil
 }
 
 func extractUserID(ctx context.Context) (string, error) {

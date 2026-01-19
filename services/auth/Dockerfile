@@ -4,7 +4,7 @@ RUN apk update && apk add --no-cache ca-certificates
 
 FROM scratch
 
-WORKDIR /bin
+WORKDIR ./bin
 
 COPY bin/auth auth
 

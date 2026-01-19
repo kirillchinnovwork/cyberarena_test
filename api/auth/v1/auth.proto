@@ -6,79 +6,128 @@ option go_package = "gis/polygon/api/auth/v1;pb";
 
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
-import "google/protobuf/descriptor.proto";
 
-// LoginRequest — запрос на аутентификацию по отображаемому имени пользователя и паролю.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_USER = 1;
+  ROLE_ADMIN = 2;
+}
+
+message RegisterRequest {
+  string username = 1;
+  string password = 2;
+  Role role = 3;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+  string username = 2;
+  Role role = 3;
+  string avatar_url = 4;
+}
+
 message LoginRequest {
-  string name = 1; // Отображаемое имя пользователя (логин)
-  string password = 2; // Пароль в открытом виде (plain).
+  string name = 1;
+  string password = 2;
 }
 
-// LoginResponse — ответ с access token.
 message LoginResponse {
-  string access_token = 1; // JWT access token
-  int64 expires_at_unix = 2; // Unix timestamp (UTC seconds) истечения токена
-  string user_id = 3; // Идентификатор пользователя (subject)
-  string team_id = 4; // Первая (текущая) команда пользователя, может быть пустой
-  string refresh_token = 5; // Оpaque refresh token
-  int64 refresh_expires_at_unix = 6; // Unix timestamp (UTC seconds) истечения refresh
+  string access_token = 1;
+  int64 expires_at_unix = 2;
+  string user_id = 3;
+  string team_id = 4;
+  string refresh_token = 5;
+  int64 refresh_expires_at_unix = 6;
+  Role role = 7;
 }
 
-// ValidateTokenRequest — запрос проверки токена.
-message ValidateTokenRequest { string access_token = 1; }
+message ValidateTokenRequest { 
+  string access_token = 1; 
+}
 
-// ValidateTokenResponse — результат валидации токена.
-// Дополнено полем team_id для передачи текущей команды (если есть).
 message ValidateTokenResponse {
-  string user_id = 1; // Идентификатор пользователя из subject
-  string team_id = 2; // Первая (текущая) команда пользователя, может быть пустой
+  string user_id = 1;
+  string team_id = 2;
+  Role role = 3;
 }
 
-// CreateUserRequest — админский запрос на создание пользователя (в users) + установка пароля.
+message RefreshTokenRequest { 
+  string refresh_token = 1; 
+}
+
 message CreateUserRequest {
-  string name = 1;      // Отображаемое имя
-  string password = 2;  // Пароль
-  bytes avatar = 3;     // Опциональный аватар (проксируется в users)
+  string name = 1;
+  string password = 2;
+  bytes avatar = 3;
+  Role role = 4;
 }
 
-// CreateUserResponse — ответ с созданным пользователем.
 message CreateUserResponse {
   string user_id = 1;
   string name = 2;
   string avatar_url = 3;
+  Role role = 4;
 }
 
-// SetPasswordRequest — админский запрос на смену/установку пароля существующего пользователя.
-message SetPasswordRequest { string user_id = 1; string password = 2; }
+message SetPasswordRequest { 
+  string user_id = 1; 
+  string password = 2; 
+}
 
-// AuthClientService — публичные (клиентские) операции аутентификации.
+message SetRoleRequest {
+  string user_id = 1;
+  Role role = 2;
+}
+
 service AuthClientService {
-  // Login — аутентификация по отображаемому имени (name) и паролю, выдаёт JWT.
+  rpc Register(RegisterRequest) returns (RegisterResponse) {
+    option (google.api.http) = { 
+      post: "/v1/auth/register" 
+      body: "*" 
+    };
+  }
+  
   rpc Login(LoginRequest) returns (LoginResponse) {
-    option (google.api.http) = { post: "/v1/auth/login" body: "*" };
+    option (google.api.http) = { 
+      post: "/v1/auth/login" 
+      body: "*" 
+    };
   }
-  // ValidateToken — валидация токена, возвращает user_id.
+  
   rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse) {
-    option (google.api.http) = { post: "/v1/auth/validate" body: "*" };
+    option (google.api.http) = { 
+      post: "/v1/auth/validate" 
+      body: "*" 
+    };
   }
-  // Refresh — обмен действительного refresh-токена на новый access + refresh.
+  
   rpc Refresh(RefreshTokenRequest) returns (LoginResponse) {
-    option (google.api.http) = { post: "/v1/auth/refresh" body: "*" };
+    option (google.api.http) = { 
+      post: "/v1/auth/refresh" 
+      body: "*" 
+    };
   }
 }
 
-// AuthAdminService — административные операции управления учётными данными.
 service AuthAdminService {
-  // CreateUser — создаёт профиль пользователя через users + сохраняет пароль.
   rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
-    option (google.api.http) = { post: "/v1/admin/auth/users" body: "*" };
+    option (google.api.http) = { 
+      post: "/v1/admin/auth/users" 
+      body: "*" 
+    };
   }
-  // SetPassword — устанавливает/заменяет пароль пользователя.
+  
   rpc SetPassword(SetPasswordRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = { post: "/v1/admin/auth/users/{user_id}/password" body: "*" };
+    option (google.api.http) = { 
+      post: "/v1/admin/auth/users/{user_id}/password" 
+      body: "*" 
+    };
+  }
+  
+  rpc SetRole(SetRoleRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = { 
+      post: "/v1/admin/auth/users/{user_id}/role" 
+      body: "*" 
+    };
   }
 }
-
-// RefreshTokenRequest — запрос обновления по refresh токену.
-message RefreshTokenRequest { string refresh_token = 1; }
-

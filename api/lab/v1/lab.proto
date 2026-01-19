@@ -1,0 +1,205 @@
+syntax = "proto3";
+
+package lab.v1;
+
+option go_package = "gis/polygon/api/lab/v1;pb";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+message Lab {
+  string id = 1;
+  string polygon_id = 2;
+  string title = 3;
+  string description = 4;
+  google.protobuf.Timestamp started_at = 5;
+  int64 ttl_seconds = 6;
+  string group_id = 7;
+  int32 step_count = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message LabStep {
+  string id = 1;
+  string lab_id = 2;
+  string title = 3;
+  string description = 4;
+  google.protobuf.Struct initial_items = 5;
+  bool has_answer = 6;
+  google.protobuf.Struct answer = 7;
+  int32 order_index = 8;
+}
+
+message LabStepPublic {
+  string id = 1;
+  string lab_id = 2;
+  string title = 3;
+  string description = 4;
+  google.protobuf.Struct initial_items = 5;
+  bool has_answer = 6;
+  int32 order_index = 7;
+}
+
+message GetLabRequest {
+  string polygon_id = 1;
+}
+
+message GetLabResponse {
+  Lab lab = 1;
+}
+
+message GetLabStepsRequest {
+  string polygon_id = 1;
+}
+
+message GetLabStepsResponse {
+  repeated LabStepPublic steps = 1;
+}
+
+message GetStepAnswerRequest {
+  string polygon_id = 1;
+  string lab_id = 2;
+  string step_id = 3;
+}
+
+message GetStepAnswerResponse {
+  LabStep step = 1;
+}
+
+message CreateLabRequest {
+  string polygon_id = 1;
+  string title = 2;
+  string description = 3;
+  google.protobuf.Timestamp started_at = 4;
+  int64 ttl_seconds = 5;
+  string group_id = 6;
+}
+
+message UpdateLabRequest {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  google.protobuf.Timestamp started_at = 4;
+  int64 ttl_seconds = 5;
+  string group_id = 6;
+}
+
+message DeleteLabRequest {
+  string id = 1;
+}
+
+message CreateLabStepRequest {
+  string lab_id = 1;
+  string title = 2;
+  string description = 3;
+  google.protobuf.Struct initial_items = 4;
+  bool has_answer = 5;
+  google.protobuf.Struct answer = 6;
+  int32 order_index = 7;
+}
+
+message UpdateLabStepRequest {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  google.protobuf.Struct initial_items = 4;
+  bool has_answer = 5;
+  google.protobuf.Struct answer = 6;
+  int32 order_index = 7;
+}
+
+message DeleteLabStepRequest {
+  string id = 1;
+}
+
+message ListLabsRequest {
+  string polygon_id = 1;
+}
+
+message ListLabsResponse {
+  repeated Lab labs = 1;
+}
+
+message ListLabStepsRequest {
+  string lab_id = 1;
+}
+
+message ListLabStepsResponse {
+  repeated LabStep steps = 1;
+}
+
+service LabClientService {
+  rpc GetLab(GetLabRequest) returns (GetLabResponse) {
+    option (google.api.http) = {
+      get: "/v1/polygon/{polygon_id}/lab"
+    };
+  }
+
+  rpc GetLabSteps(GetLabStepsRequest) returns (GetLabStepsResponse) {
+    option (google.api.http) = {
+      get: "/v1/polygon/{polygon_id}/lab/steps"
+    };
+  }
+}
+
+service LabAdminService {
+  rpc GetStepAnswer(GetStepAnswerRequest) returns (GetStepAnswerResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/polygon/{polygon_id}/lab/{lab_id}/steps/{step_id}/answer"
+    };
+  }
+
+  rpc ListLabs(ListLabsRequest) returns (ListLabsResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/labs"
+    };
+  }
+
+  rpc CreateLab(CreateLabRequest) returns (Lab) {
+    option (google.api.http) = {
+      post: "/v1/admin/labs"
+      body: "*"
+    };
+  }
+
+  rpc UpdateLab(UpdateLabRequest) returns (Lab) {
+    option (google.api.http) = {
+      patch: "/v1/admin/labs/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteLab(DeleteLabRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/admin/labs/{id}"
+    };
+  }
+
+  rpc ListLabSteps(ListLabStepsRequest) returns (ListLabStepsResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/labs/{lab_id}/steps"
+    };
+  }
+
+  rpc CreateLabStep(CreateLabStepRequest) returns (LabStep) {
+    option (google.api.http) = {
+      post: "/v1/admin/labs/{lab_id}/steps"
+      body: "*"
+    };
+  }
+
+  rpc UpdateLabStep(UpdateLabStepRequest) returns (LabStep) {
+    option (google.api.http) = {
+      patch: "/v1/admin/steps/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteLabStep(DeleteLabStepRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/admin/steps/{id}"
+    };
+  }
+}

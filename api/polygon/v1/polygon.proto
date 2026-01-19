@@ -25,6 +25,7 @@ message InitialItem {
   string description = 3;
   repeated string files_urls = 4;
   string user_id = 5; // если заполнено — элемент предназначен только указанному пользователю
+  string team_id = 6; // если заполнено — элемент предназначен только указанной команде (виден всем её участникам)
 }
 
 // Polygon — сущность полигона (набор инцидентов).
@@ -51,17 +52,18 @@ message Incident {
 }
 
 // Report — отчет команды по инциденту.
-// steps — последовательность шагов (ReportStep); time — длительность / отметка.
+// steps — последовательность шагов (ReportStep); time — unix timestamp (seconds) момента первой отправки отчёта.
 message Report {
   string id = 1;
   string incident_id = 7; // ссылка на инцидент
   Team team = 2;
   repeated ReportStep steps = 3;
-  int32 time = 4;
+  uint32 time = 4;
   ReportStatus status = 5;
   string rejection_reason = 6; // причина отклонения (заполняется админом при REJECTED)
   string red_team_report_id = 8; // (для blue отчётов) id принятого red отчёта, против которого защищаются
   string incident_name = 9; // название инцидента (для удобной отдачи на фронт)
+  string polygon_name = 10; // название полигона (для удобной отдачи на фронт)
 }
 
 // ReportStep — шаг отчета с подробностями выполнения.
@@ -70,7 +72,7 @@ message ReportStep {
   string id = 1;
   uint32 number = 2;
   string name = 3;
-  int32 time = 4;
+  uint32 time = 4;
   string description = 5;
   string target = 6;
   string source = 7;
@@ -115,6 +117,7 @@ message IncidentRedView {
   ReportStatus my_report_status = 13; // статус последнего отчёта текущей красной команды
   string my_rejection_reason = 14; // причина отклонения (если применимо)
   string my_report_id = 15; // id последнего отчёта текущей красной команды
+  bool already_solved = 16; // true, если ЛЮБАЯ красная команда уже имеет принятый (ACCEPTED) отчёт по инциденту
 }
 
 message IncidentBlueView {
@@ -123,7 +126,7 @@ message IncidentBlueView {
   string description = 3;
   Team red_team = 8; // красная команда, чей принятый отчёт является основой для защиты
   string red_team_report_id = 9; // id принятого отчёта красной команды
-  int32 red_team_report_time = 10; // время реализации атаки красной команды
+  uint32 red_team_report_time = 10; // время реализации атаки красной команды
   int64 red_prize = 11; // приз для красной команды при принятии отчёта
   int64 blue_prize_procent = 12; // процент (0-100) от red_prize, начисляемый синей команде за успешную защиту
   ReportStatus my_report_status = 13; // статус последнего отчёта синей команды
@@ -190,6 +193,9 @@ message Team {
   repeated users.v1.User users = 4;
   int64 prize_total = 5; // суммарная начисленная награда (принятые отчёты)
   repeated TeamFine fines = 6; // активные и отозванные штрафы команды
+  int64 initial_prize = 7; // стартовый капитал (учитывается в prize_total как база)
+  uint32 reports_submitted = 8; // всего сданных отчётов команды (все статусы)
+  uint32 reports_accepted = 9; // принятых (ACCEPTED) отчётов команды
 }
 
 // TeamFine — штраф, назначенный команде администратором.
@@ -285,6 +291,7 @@ message GetScoresResponse {
 message CreateTeamRequest {
   string name = 1;
   TeamType type = 2;
+  int64 initial_prize = 3; // стартовый капитал (>=0)
 }
 
 // EditTeamRequest — редактирование команды (передавайте только изменяемые поля).
@@ -292,6 +299,7 @@ message EditTeamRequest {
   string id = 1;
   string name = 2;
   TeamType type = 3;
+  optional int64 initial_prize = 4; // новое значение стартового капитала (>=0)
 }
 
 // DeleteTeamRequest — удаление команды.
@@ -610,6 +618,7 @@ message CreateInitialItemRequest {
   string description = 2;
   repeated string files_urls = 3;
   string user_id = 4; // опционально: приватный для пользователя
+  string team_id = 5; // опционально: приватный для команды
 }
 message EditInitialItemRequest {
   string id = 1;
@@ -617,6 +626,7 @@ message EditInitialItemRequest {
   string description = 3;
   repeated string files_urls = 4;
   string user_id = 5; // установить / снять (пустая строка = сделать публичным)
+  string team_id = 6; // установить / снять (пустая строка = сделать публичным)
 }
 message DeleteInitialItemRequest {
   string id = 1;

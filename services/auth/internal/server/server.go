@@ -42,25 +42,79 @@ func New(pool *pgxpool.Pool, users usersv1.UsersAdminServiceClient, polygon poly
 	return &Server{pool: pool, users: users, polygon: polygon, jwtSecret: secret, jwtTTL: ttl, refreshTTL: refreshTTL, cookieName: cookieName, cookieDomain: cookieDomain, cookieSecure: cookieSecure}
 }
 
-func (s *Server) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
-	if req.GetName() == "" || req.GetPassword() == "" {
-		return nil, status.Error(codes.InvalidArgument, "name and password required")
+type claimsWithTeam struct {
+	TeamID string `json:"team_id,omitempty"`
+	Role   string `json:"role,omitempty"`
+	jwt.RegisteredClaims
+}
+
+func (s *Server) Register(ctx context.Context, req *authv1.RegisterRequest) (*authv1.RegisterResponse, error) {
+	if req.GetUsername() == "" || req.GetPassword() == "" {
+		return nil, status.Error(codes.InvalidArgument, "username and password required")
 	}
-	user, err := s.users.CreateUser(ctx, &usersv1.CreateUserRequest{Name: req.GetName(), Avatar: req.GetAvatar()})
+
+	role := Role(req.GetRole())
+	if role == RoleUnspecified {
+		role = RoleUser
+	}
+
+	user, err := s.users.CreateUser(ctx, &usersv1.CreateUserRequest{Name: req.GetUsername()})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create user upstream: %v", err)
 	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.GetPassword()), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "hash password: %v", err)
 	}
 
-	_, err = s.pool.Exec(ctx, `insert into auth_credentials (user_id, password_hash) values ($1,$2)
-		ON CONFLICT (user_id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = now()`, user.GetId(), string(hash))
+	_, err = s.pool.Exec(ctx, `insert into auth_credentials (user_id, user_name, password_hash, role) values ($1,$2,$3,$4)
+		ON CONFLICT (user_id) DO UPDATE SET password_hash = excluded.password_hash, role = excluded.role, updated_at = now()`,
+		user.GetId(), req.GetUsername(), string(hash), int32(role))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "save credentials: %v", err)
+	}
+
+	return &authv1.RegisterResponse{
+		UserId:   user.GetId(),
+		Username: user.GetName(),
+		Role:     authv1.Role(role),
+	}, nil
+}
+
+func (s *Server) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
+	if req.GetName() == "" || req.GetPassword() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name and password required")
+	}
+
+	role := Role(req.GetRole())
+	if role == RoleUnspecified {
+		role = RoleUser
+	}
+
+	user, err := s.users.CreateUser(ctx, &usersv1.CreateUserRequest{Name: req.GetName(), Avatar: req.GetAvatar()})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "create user upstream: %v", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.GetPassword()), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "hash password: %v", err)
+	}
+
+	_, err = s.pool.Exec(ctx, `insert into auth_credentials (user_id, user_name, password_hash, role) values ($1,$2,$3,$4)
+		ON CONFLICT (user_id) DO UPDATE SET password_hash = excluded.password_hash, role = excluded.role, updated_at = now()`,
+		user.GetId(), req.GetName(), string(hash), int32(role))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "save password: %v", err)
 	}
-	return &authv1.CreateUserResponse{UserId: user.GetId(), Name: user.GetName(), AvatarUrl: user.GetAvatarUrl()}, nil
+
+	return &authv1.CreateUserResponse{
+		UserId:    user.GetId(),
+		Name:      user.GetName(),
+		AvatarUrl: user.GetAvatarUrl(),
+		Role:      authv1.Role(role),
+	}, nil
 }
 
 func (s *Server) SetPassword(ctx context.Context, req *authv1.SetPasswordRequest) (*emptypb.Empty, error) {
@@ -76,15 +130,15 @@ func (s *Server) SetPassword(ctx context.Context, req *authv1.SetPasswordRequest
 		return nil, status.Errorf(codes.Internal, "tx begin: %v", err)
 	}
 	defer tx.Rollback(ctx)
-	ct, err := tx.Exec(ctx, `insert into auth_credentials (user_id, password_hash) values ($1,$2)
-		ON CONFLICT (user_id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = now()`, req.GetUserId(), string(hash))
+
+	ct, err := tx.Exec(ctx, `update auth_credentials set password_hash = $2, updated_at = now() where user_id = $1`, req.GetUserId(), string(hash))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "save password: %v", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return nil, status.Error(codes.Internal, "no rows affected")
+		return nil, status.Error(codes.NotFound, "user not found")
 	}
-	// Инвалидируем все активные refresh токены пользователя
+
 	if _, err := tx.Exec(ctx, `update auth_refresh_tokens set revoked=true where user_id=$1 and revoked=false`, req.GetUserId()); err != nil {
 		return nil, status.Errorf(codes.Internal, "revoke refresh tokens: %v", err)
 	}
@@ -94,24 +148,50 @@ func (s *Server) SetPassword(ctx context.Context, req *authv1.SetPasswordRequest
 	return &emptypb.Empty{}, nil
 }
 
-type claimsWithTeam struct {
-	TeamID string `json:"team_id,omitempty"`
-	jwt.RegisteredClaims
+func (s *Server) SetRole(ctx context.Context, req *authv1.SetRoleRequest) (*emptypb.Empty, error) {
+	if req.GetUserId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id required")
+	}
+
+	role := Role(req.GetRole())
+	if role == RoleUnspecified {
+		role = RoleUser
+	}
+
+	ct, err := s.pool.Exec(ctx, `update auth_credentials set role = $2, updated_at = now() where user_id = $1`, req.GetUserId(), int32(role))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "update role: %v", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return nil, status.Error(codes.NotFound, "user not found")
+	}
+
+	_, _ = s.pool.Exec(ctx, `update auth_refresh_tokens set revoked=true where user_id=$1 and revoked=false`, req.GetUserId())
+
+	return &emptypb.Empty{}, nil
 }
 
 func (s *Server) Login(ctx context.Context, req *authv1.LoginRequest) (*authv1.LoginResponse, error) {
 	if req.GetName() == "" || req.GetPassword() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name and password required")
 	}
+
 	var stored string
 	var userID string
+	var roleInt int32
 
-	err := s.pool.QueryRow(ctx, `select c.user_id, c.password_hash from auth_credentials c join users u on u.id = c.user_id where u.name=$1`, req.GetName()).Scan(&userID, &stored)
+	err := s.pool.QueryRow(ctx, `select c.user_id, c.password_hash, c.role from auth_credentials c join users u on u.id = c.user_id where u.name=$1`, req.GetName()).Scan(&userID, &stored, &roleInt)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, "credentials not found")
 	}
+
 	if bcrypt.CompareHashAndPassword([]byte(stored), []byte(req.GetPassword())) != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+	}
+
+	role := Role(roleInt)
+	if role == RoleUnspecified {
+		role = RoleUser
 	}
 
 	var teamID string
@@ -123,15 +203,23 @@ func (s *Server) Login(ctx context.Context, req *authv1.LoginRequest) (*authv1.L
 			teamID = resp.GetTeam().GetId()
 		}
 	}
+
 	exp := time.Now().Add(s.jwtTTL)
-	claims := claimsWithTeam{TeamID: teamID, RegisteredClaims: jwt.RegisteredClaims{Subject: userID, ExpiresAt: jwt.NewNumericDate(exp), IssuedAt: jwt.NewNumericDate(time.Now())}}
+	claims := claimsWithTeam{
+		TeamID: teamID,
+		Role:   role.String(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			ExpiresAt: jwt.NewNumericDate(exp),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString(s.jwtSecret)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "sign token: %v", err)
 	}
 
-	// Сгенерировать и сохранить refresh токен
 	refreshToken := generateOpaqueToken()
 	refreshExp := time.Now().Add(s.refreshTTL)
 	_, err = s.pool.Exec(ctx, `insert into auth_refresh_tokens (token, user_id, expires_at) values ($1,$2,$3)`, refreshToken, userID, refreshExp)
@@ -139,11 +227,18 @@ func (s *Server) Login(ctx context.Context, req *authv1.LoginRequest) (*authv1.L
 		return nil, status.Errorf(codes.Internal, "save refresh: %v", err)
 	}
 
-	// Установить httpOnly cookie через gRPC заголовок
 	cookie := s.buildRefreshCookie(refreshToken, refreshExp)
 	_ = grpc.SetHeader(ctx, metadata.Pairs("set-cookie", cookie))
 
-	return &authv1.LoginResponse{AccessToken: signed, ExpiresAtUnix: exp.Unix(), UserId: userID, TeamId: teamID, RefreshToken: refreshToken, RefreshExpiresAtUnix: refreshExp.Unix()}, nil
+	return &authv1.LoginResponse{
+		AccessToken:          signed,
+		ExpiresAtUnix:        exp.Unix(),
+		UserId:               userID,
+		TeamId:               teamID,
+		RefreshToken:         refreshToken,
+		RefreshExpiresAtUnix: refreshExp.Unix(),
+		Role:                 authv1.Role(role),
+	}, nil
 }
 
 func (s *Server) ValidateToken(ctx context.Context, req *authv1.ValidateTokenRequest) (*authv1.ValidateTokenResponse, error) {
@@ -163,14 +258,19 @@ func (s *Server) ValidateToken(ctx context.Context, req *authv1.ValidateTokenReq
 	if !ok || !parsed.Valid || cl.Subject == "" {
 		return nil, status.Error(codes.Unauthenticated, "invalid token")
 	}
-	return &authv1.ValidateTokenResponse{UserId: cl.Subject, TeamId: cl.TeamID}, nil
+
+	role := RoleFromString(cl.Role)
+
+	return &authv1.ValidateTokenResponse{
+		UserId: cl.Subject,
+		TeamId: cl.TeamID,
+		Role:   authv1.Role(role),
+	}, nil
 }
 
-// Refresh — обмен действительного refresh-токена на новый access и refresh с ротацией
 func (s *Server) Refresh(ctx context.Context, req *authv1.RefreshTokenRequest) (*authv1.LoginResponse, error) {
 	tokenValue := req.GetRefreshToken()
 	if tokenValue == "" {
-		// Пытаемся получить из метаданных (прокинут из Cookie в gateway)
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
 			if vals := md.Get("x-refresh-token"); len(vals) > 0 && vals[0] != "" {
 				tokenValue = vals[0]
@@ -180,6 +280,7 @@ func (s *Server) Refresh(ctx context.Context, req *authv1.RefreshTokenRequest) (
 			return nil, status.Error(codes.InvalidArgument, "refresh token required")
 		}
 	}
+
 	var userID string
 	var replacedBy string
 	var expiresAt time.Time
@@ -192,7 +293,13 @@ func (s *Server) Refresh(ctx context.Context, req *authv1.RefreshTokenRequest) (
 		return nil, status.Error(codes.Unauthenticated, "refresh token expired or revoked")
 	}
 
-	// Получить команду пользователя
+	var roleInt int32
+	err = s.pool.QueryRow(ctx, `select role from auth_credentials where user_id=$1`, userID).Scan(&roleInt)
+	if err != nil {
+		roleInt = int32(RoleUser)
+	}
+	role := Role(roleInt)
+
 	var teamID string
 	if s.polygon != nil {
 		ctx2, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -203,16 +310,22 @@ func (s *Server) Refresh(ctx context.Context, req *authv1.RefreshTokenRequest) (
 		}
 	}
 
-	// Выпуск нового access токена
 	exp := time.Now().Add(s.jwtTTL)
-	claims := claimsWithTeam{TeamID: teamID, RegisteredClaims: jwt.RegisteredClaims{Subject: userID, ExpiresAt: jwt.NewNumericDate(exp), IssuedAt: jwt.NewNumericDate(time.Now())}}
+	claims := claimsWithTeam{
+		TeamID: teamID,
+		Role:   role.String(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			ExpiresAt: jwt.NewNumericDate(exp),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString(s.jwtSecret)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "sign token: %v", err)
 	}
 
-	// Ротация refresh токена: пометить текущий как заменённый и выдать новый
 	newRefresh := generateOpaqueToken()
 	newRefreshExp := time.Now().Add(s.refreshTTL)
 	tx, err := s.pool.Begin(ctx)
@@ -220,6 +333,7 @@ func (s *Server) Refresh(ctx context.Context, req *authv1.RefreshTokenRequest) (
 		return nil, status.Errorf(codes.Internal, "tx begin: %v", err)
 	}
 	defer tx.Rollback(ctx)
+
 	_, err = tx.Exec(ctx, `update auth_refresh_tokens set revoked=true, replaced_by_token=$2 where token=$1`, tokenValue, newRefresh)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "revoke refresh: %v", err)
@@ -232,18 +346,23 @@ func (s *Server) Refresh(ctx context.Context, req *authv1.RefreshTokenRequest) (
 		return nil, status.Errorf(codes.Internal, "tx commit: %v", err)
 	}
 
-	// Установить новый cookie с refresh токеном
 	cookie := s.buildRefreshCookie(newRefresh, newRefreshExp)
 	_ = grpc.SetHeader(ctx, metadata.Pairs("set-cookie", cookie))
 
-	return &authv1.LoginResponse{AccessToken: signed, ExpiresAtUnix: exp.Unix(), UserId: userID, TeamId: teamID, RefreshToken: newRefresh, RefreshExpiresAtUnix: newRefreshExp.Unix()}, nil
+	return &authv1.LoginResponse{
+		AccessToken:          signed,
+		ExpiresAtUnix:        exp.Unix(),
+		UserId:               userID,
+		TeamId:               teamID,
+		RefreshToken:         newRefresh,
+		RefreshExpiresAtUnix: newRefreshExp.Unix(),
+		Role:                 authv1.Role(role),
+	}, nil
 }
 
-// generateOpaqueToken — генерирует криптостойкий opaque токен
 func generateOpaqueToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// fallback на time-based, крайне маловероятно
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return base64.RawURLEncoding.EncodeToString(b)

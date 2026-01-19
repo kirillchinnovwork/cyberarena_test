@@ -1309,6 +1309,10 @@
         "userId": {
           "type": "string",
           "title": "опционально: приватный для пользователя"
+        },
+        "teamId": {
+          "type": "string",
+          "title": "опционально: приватный для команды"
         }
       },
       "title": "----- Запросы управления InitialItem -----"
@@ -1340,6 +1344,11 @@
         },
         "type": {
           "$ref": "#/definitions/v1TeamType"
+        },
+        "initialPrize": {
+          "type": "string",
+          "format": "int64",
+          "title": "стартовый капитал (\u003e=0)"
         }
       },
       "description": "----- Административные запросы -----\nCreateTeamRequest — создание команды."
@@ -1390,6 +1399,10 @@
         "userId": {
           "type": "string",
           "title": "установить / снять (пустая строка = сделать публичным)"
+        },
+        "teamId": {
+          "type": "string",
+          "title": "установить / снять (пустая строка = сделать публичным)"
         }
       }
     },
@@ -1426,6 +1439,11 @@
         },
         "type": {
           "$ref": "#/definitions/v1TeamType"
+        },
+        "initialPrize": {
+          "type": "string",
+          "format": "int64",
+          "title": "новое значение стартового капитала (\u003e=0)"
         }
       },
       "description": "EditTeamRequest — редактирование команды (передавайте только изменяемые поля)."
@@ -1586,7 +1604,7 @@
         },
         "redTeamReportTime": {
           "type": "integer",
-          "format": "int32",
+          "format": "int64",
           "title": "время реализации атаки красной команды"
         },
         "redPrize": {
@@ -1646,6 +1664,10 @@
         "myReportId": {
           "type": "string",
           "title": "id последнего отчёта текущей красной команды"
+        },
+        "alreadySolved": {
+          "type": "boolean",
+          "title": "true, если ЛЮБАЯ красная команда уже имеет принятый (ACCEPTED) отчёт по инциденту"
         }
       }
     },
@@ -1670,6 +1692,10 @@
         "userId": {
           "type": "string",
           "title": "если заполнено — элемент предназначен только указанному пользователю"
+        },
+        "teamId": {
+          "type": "string",
+          "title": "если заполнено — элемент предназначен только указанной команде (виден всем её участникам)"
         }
       },
       "description": "InitialItem — элемент исходных материалов, доступных участникам.\nid — идентификатор; name — название; description — описание; files_urls — URLs файлов."
@@ -1806,7 +1832,7 @@
         },
         "time": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "status": {
           "$ref": "#/definitions/v1ReportStatus"
@@ -1822,9 +1848,13 @@
         "incidentName": {
           "type": "string",
           "title": "название инцидента (для удобной отдачи на фронт)"
+        },
+        "polygonName": {
+          "type": "string",
+          "title": "название полигона (для удобной отдачи на фронт)"
         }
       },
-      "description": "Report — отчет команды по инциденту.\nsteps — последовательность шагов (ReportStep); time — длительность / отметка."
+      "description": "Report — отчет команды по инциденту.\nsteps — последовательность шагов (ReportStep); time — unix timestamp (seconds) момента первой отправки отчёта."
     },
     "v1ReportAttachment": {
       "type": "object",
@@ -1871,7 +1901,7 @@
         },
         "time": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         },
         "description": {
           "type": "string"
@@ -1919,6 +1949,21 @@
             "$ref": "#/definitions/v1TeamFine"
           },
           "title": "активные и отозванные штрафы команды"
+        },
+        "initialPrize": {
+          "type": "string",
+          "format": "int64",
+          "title": "стартовый капитал (учитывается в prize_total как база)"
+        },
+        "reportsSubmitted": {
+          "type": "integer",
+          "format": "int64",
+          "title": "всего сданных отчётов команды (все статусы)"
+        },
+        "reportsAccepted": {
+          "type": "integer",
+          "format": "int64",
+          "title": "принятых (ACCEPTED) отчётов команды"
         }
       },
       "description": "Team — сущность команды.\ntype — тип (красная / синяя)."

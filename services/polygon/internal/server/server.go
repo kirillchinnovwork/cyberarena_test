@@ -30,17 +30,19 @@ type PolygonServer struct {
 }
 
 func RunGRPC(addr string) error {
-	pgDsn := getenv("POLYGON_PG_DSN", "postgres://postgres:postgres@localhost:5432/news?sslmode=disable")
+	pgDsn := getenv("POLYGON_PG_DSN", "postgres://postgres:postgres@localhost:5432/cyberarena?sslmode=disable")
 	pool, err := pgxpool.New(context.Background(), pgDsn)
 	if err != nil {
 		return err
 	}
-	if err := storage.NewRepo(pool).Migrate(context.Background()); err != nil {
+	repo := storage.NewRepo(pool)
+	if err := repo.Migrate(context.Background()); err != nil {
 		return err
 	}
-	repo := storage.NewRepo(pool)
+	if err := repo.MigrateLabs(context.Background()); err != nil {
+		log.Printf("labs migration error: %v", err)
+	}
 	jwtSecret := []byte(getenv("POLYGON_JWT_SECRET", getenv("AUTH_JWT_SECRET", "dev-secret")))
-	// S3
 	s3Endpoint := getenv("POLYGON_S3_ENDPOINT", "localhost:9000")
 	s3Access := getenv("POLYGON_S3_ACCESS_KEY", "minioadmin")
 	s3Secret := getenv("POLYGON_S3_SECRET_KEY", "minioadmin")
@@ -111,7 +113,7 @@ func (s *PolygonServer) toPBReport(ctx context.Context, r *storage.Report) *pb.R
 	}
 	pbSteps := make([]*pb.ReportStep, 0, len(r.Steps))
 	for _, s := range r.Steps {
-		pbSteps = append(pbSteps, &pb.ReportStep{Id: s.ID.String(), Number: uint32(s.Number), Name: s.Name, Time: s.Time, Description: s.Description, Target: s.Target, Source: s.Source, Result: s.Result})
+		pbSteps = append(pbSteps, &pb.ReportStep{Id: s.ID.String(), Number: uint32(s.Number), Name: s.Name, Time: uint32(s.Time), Description: s.Description, Target: s.Target, Source: s.Source, Result: s.Result})
 	}
 	var redRef string
 	if r.RedTeamReportID != nil {
@@ -137,12 +139,14 @@ func (s *PolygonServer) toPBReport(ctx context.Context, r *storage.Report) *pb.R
 			}
 		}
 	}
-	// Загружаем название инцидента для удобства фронта
-	var incidentName string
+	var incidentName, polygonName string
 	if in, err := s.repo.GetIncident(ctx, r.IncidentID); err == nil && in != nil {
 		incidentName = in.Name
 	}
-	return &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), IncidentName: incidentName, Team: teamPB, Steps: pbSteps, Time: r.Time, Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason, RedTeamReportId: redRef}
+	if pn, err := s.repo.GetIncidentPolygonName(ctx, r.IncidentID); err == nil {
+		polygonName = pn
+	}
+	return &pb.Report{Id: r.ID.String(), IncidentId: r.IncidentID.String(), IncidentName: incidentName, PolygonName: polygonName, Team: teamPB, Steps: pbSteps, Time: uint32(r.Time), Status: pb.ReportStatus(r.Status), RejectionReason: r.RejectionReason, RedTeamReportId: redRef}
 }
 
 func derefOr(p *string, def string) string {
@@ -158,8 +162,3 @@ func contentTypeOrDefault(ct string) string {
 	}
 	return ct
 }
-
-// func readAll(b *bytes.Buffer, r io.Reader) ([]byte, error) {
-// 	_, err := b.ReadFrom(r)
-// 	return b.Bytes(), err
-// }

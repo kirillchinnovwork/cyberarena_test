@@ -29,8 +29,7 @@ tasks:
         vars:
           CGO_ENABLED: 0
           GOOS: linux
-          GOARCH:
-            sh: go env GOARCH
+          GOARCH: amd64
 
   init:
     dir: '{{.USER_WORKING_DIR}}'

@@ -8,18 +8,18 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
+
+	"github.com/google/uuid"
+	"google.golang.org/genproto/googleapis/api/httpbody"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	attpb "gis/polygon/api/attachments/v1"
 	"gis/polygon/services/attachments/internal/media"
 
 	gatewayfile "github.com/black-06/grpc-gateway-file"
-	"github.com/google/uuid"
-	httpbody "google.golang.org/genproto/googleapis/api/httpbody"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 type AttachmentMeta struct {
@@ -33,9 +33,7 @@ type AttachmentMeta struct {
 type AttachmentsServer struct {
 	attpb.UnimplementedAttachmentsClientServiceServer
 	attpb.UnimplementedAttachmentsAdminServiceServer
-	s3   *media.S3Storage
-	mu   sync.RWMutex
-	meta map[string]AttachmentMeta
+	s3 *media.S3Storage
 }
 
 // UploadAttachment (client) — требует user id.
@@ -71,13 +69,15 @@ func (s *AttachmentsServer) UploadAttachment(stream attpb.AttachmentsClientServi
 	attID := uuid.New()
 	key := s.s3.ObjectKey("attachments", attID.String(), "file")
 	ct := contentTypeOrDefault(fileHeader.Header.Get("Content-Type"))
-	_, size, err := s.s3.PutBytes(stream.Context(), key, buf.Bytes(), ct)
+	// Пишем файл и метаданные в UserMetadata
+	meta := map[string]string{
+		"attachment-id": attID.String(),
+		"user-id":       uid,
+	}
+	_, size, err := s.s3.PutBytesMeta(stream.Context(), key, buf.Bytes(), ct, meta)
 	if err != nil {
 		return status.Errorf(codes.Internal, "s3 put: %v", err)
 	}
-	s.mu.Lock()
-	s.meta[attID.String()] = AttachmentMeta{ID: attID.String(), UserID: uid, ContentType: ct, Size: size, ObjectKey: key}
-	s.mu.Unlock()
 	return stream.SendAndClose(&attpb.UploadAttachmentResponse{Attachment: &attpb.Attachment{Id: attID.String(), Url: "/v1/attachments/" + attID.String(), ContentType: ct, Size: size, UserId: uid}})
 }
 
@@ -110,13 +110,13 @@ func (s *AttachmentsServer) UploadAttachmentAdmin(stream attpb.AttachmentsAdminS
 	attID := uuid.New()
 	key := s.s3.ObjectKey("attachments", attID.String(), "file")
 	ct := contentTypeOrDefault(fileHeader.Header.Get("Content-Type"))
-	_, size, err := s.s3.PutBytes(stream.Context(), key, buf.Bytes(), ct)
+	meta := map[string]string{
+		"attachment-id": attID.String(),
+	}
+	_, size, err := s.s3.PutBytesMeta(stream.Context(), key, buf.Bytes(), ct, meta)
 	if err != nil {
 		return status.Errorf(codes.Internal, "s3 put: %v", err)
 	}
-	s.mu.Lock()
-	s.meta[attID.String()] = AttachmentMeta{ID: attID.String(), UserID: "", ContentType: ct, Size: size, ObjectKey: key}
-	s.mu.Unlock()
 	return stream.SendAndClose(&attpb.UploadAttachmentResponse{Attachment: &attpb.Attachment{Id: attID.String(), Url: "/v1/attachments/" + attID.String(), ContentType: ct, Size: size, UserId: ""}})
 }
 
@@ -125,16 +125,12 @@ func (s *AttachmentsServer) DownloadAttachment(req *attpb.DownloadAttachmentRequ
 	if req.GetId() == "" {
 		return status.Error(codes.InvalidArgument, "id required")
 	}
-	s.mu.RLock()
-	mt, ok := s.meta[req.GetId()]
-	s.mu.RUnlock()
-	if !ok {
-		return status.Error(codes.NotFound, "attachment not found")
-	}
 	if s.s3 == nil {
 		return status.Error(codes.FailedPrecondition, "s3 not configured")
 	}
-	obj, _, ct, err := s.s3.GetObject(stream.Context(), mt.ObjectKey)
+	// Ключ объекта детерминирован по ID
+	key := s.s3.ObjectKey("attachments", req.GetId(), "file")
+	obj, _, ct, err := s.s3.GetObject(stream.Context(), key)
 	if err != nil {
 		return status.Error(codes.NotFound, "object not found")
 	}
@@ -163,7 +159,7 @@ func RunGRPC(addr string) error {
 		return err
 	}
 	grpcServer := grpc.NewServer()
-	srv := &AttachmentsServer{s3: s3, meta: make(map[string]AttachmentMeta)}
+	srv := &AttachmentsServer{s3: s3}
 	attpb.RegisterAttachmentsClientServiceServer(grpcServer, srv)
 	attpb.RegisterAttachmentsAdminServiceServer(grpcServer, srv)
 	log.Printf("attachments gRPC listening on %s", addr)

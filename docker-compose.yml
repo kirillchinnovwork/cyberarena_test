@@ -5,7 +5,7 @@ services:
     container_name: users
     environment:
       - USERS_GRPC_ADDR=:50051
-      - USERS_PG_DSN=postgres://postgres:postgres@postgres:5432/news?sslmode=disable
+      - USERS_PG_DSN=postgres://postgres:postgres@postgres:5432/cyberarena?sslmode=disable
       - USERS_S3_ENDPOINT=minio:9000
       - USERS_S3_ACCESS_KEY=minioadmin
       - USERS_S3_SECRET_KEY=minioadmin
@@ -20,7 +20,7 @@ services:
     container_name: news
     environment:
       - NEWS_GRPC_ADDR=:50052
-      - NEWS_PG_DSN=postgres://postgres:postgres@postgres:5432/news?sslmode=disable
+      - NEWS_PG_DSN=postgres://postgres:postgres@postgres:5432/cyberarena?sslmode=disable
       - NEWS_S3_ENDPOINT=minio:9000
       - NEWS_S3_ACCESS_KEY=minioadmin
       - NEWS_S3_SECRET_KEY=minioadmin
@@ -35,8 +35,8 @@ services:
     container_name: polygon
     environment:
       - POLYGON_GRPC_ADDR=:50054
-      - POLYGON_PG_DSN=postgres://postgres:postgres@postgres:5432/news?sslmode=disable
-      - POLYGON_JWT_SECRET=dev-secret
+      - POLYGON_PG_DSN=postgres://postgres:postgres@postgres:5432/cyberarena?sslmode=disable
+      - POLYGON_JWT_SECRET=${JWT_SECRET:-dev-secret}
       - POLYGON_S3_ENDPOINT=minio:9000
       - POLYGON_S3_ACCESS_KEY=minioadmin
       - POLYGON_S3_SECRET_KEY=minioadmin
@@ -65,51 +65,56 @@ services:
     container_name: auth
     environment:
       - AUTH_GRPC_ADDR=:50053
-      - AUTH_PG_DSN=postgres://postgres:postgres@postgres:5432/news?sslmode=disable
-      - AUTH_JWT_SECRET=dev-secret
+      - AUTH_PG_DSN=postgres://postgres:postgres@postgres:5432/cyberarena?sslmode=disable
+      - AUTH_JWT_SECRET=${JWT_SECRET:-dev-secret}
       - AUTH_JWT_TTL=1h
+      - AUTH_REFRESH_TTL=720h
+      - AUTH_REFRESH_COOKIE_NAME=refresh_token
+      - AUTH_REFRESH_COOKIE_SECURE=false
       - USERS_GRPC_ADDR=users:50051
+      - POLYGON_GRPC_ADDR=polygon:50054
     depends_on:
       - postgres
       - users
 
-  clients_gateway:
-    build: services/clients_gateway
-    container_name: clients_gateway
+  external_controller:
+    build: services/external_controller
+    container_name: external_controller
+    environment:
+      - EXTERNAL_CONTROLLER_GRPC_ADDR=:50056
+      - JENKINS_URL=${JENKINS_URL:-}
+      - JENKINS_USER=${JENKINS_USER:-}
+      - JENKINS_API_TOKEN=${JENKINS_API_TOKEN:-}
+      - TERRAFORM_URL=${TERRAFORM_URL:-https://app.terraform.io}
+      - TERRAFORM_TOKEN=${TERRAFORM_TOKEN:-}
+      - TERRAFORM_ORGANIZATION=${TERRAFORM_ORGANIZATION:-}
+      - SEMAPHORE_URL=${SEMAPHORE_URL:-}
+      - SEMAPHORE_API_TOKEN=${SEMAPHORE_API_TOKEN:-}
+
+  gateway:
+    build: services/gateway
+    container_name: gateway
     environment:
       - USERS_GRPC_ADDR=users:50051
       - NEWS_GRPC_ADDR=news:50052
       - AUTH_GRPC_ADDR=auth:50053
       - POLYGON_GRPC_ADDR=polygon:50054
       - ATTACHMENTS_GRPC_ADDR=attachments:50055
+      - EXTERNAL_CONTROLLER_GRPC_ADDR=external_controller:50056
       - GATEWAY_HTTP_ADDR=:8080
+      - JWT_SECRET=${JWT_SECRET:-dev-secret}
+      - AUTH_REFRESH_COOKIE_NAME=refresh_token
+      - GATEWAY_CORS_ORIGINS=${GATEWAY_CORS_ORIGINS:-}
+      - GATEWAY_CORS_ALLOW_CREDENTIALS=true
     depends_on:
       - users
       - news
       - auth
       - polygon
       - attachments
+      - external_controller
     ports:
       - "8080:8080"
-
-  admins_gateway:
-    build: services/admins_gateway
-    container_name: admins_gateway
-    environment:
-      - USERS_GRPC_ADDR=users:50051
-      - NEWS_GRPC_ADDR=news:50052
-      - AUTH_GRPC_ADDR=auth:50053
-      - POLYGON_GRPC_ADDR=polygon:50054
-      - ATTACHMENTS_GRPC_ADDR=attachments:50055
-      - GATEWAY_HTTP_ADDR=:8081
-    depends_on:
-      - users
-      - news
-      - auth
-      - polygon
-      - attachments
-    ports:
-      - "8081:8081"
 
   postgres:
     image: postgres:16-alpine
@@ -117,7 +122,7 @@ services:
     environment:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_USER=postgres
-      - POSTGRES_DB=news
+      - POSTGRES_DB=cyberarena
     ports:
       - "5432:5432"
     volumes:

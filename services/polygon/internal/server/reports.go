@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 
 	pb "gis/polygon/api/polygon/v1"
 	"gis/polygon/services/polygon/internal/storage"
@@ -91,9 +92,10 @@ func (s *PolygonServer) SubmitReport(ctx context.Context, req *pb.SubmitReportRe
 	reportID := uuid.New()
 	steps := make([]storage.ReportStep, 0, len(req.GetSteps()))
 	for i, st := range req.GetSteps() {
-		steps = append(steps, storage.ReportStep{ID: uuid.New(), Number: int32(i + 1), Name: st.GetName(), Time: st.GetTime(), Description: st.GetDescription(), Target: st.GetTarget(), Source: st.GetSource(), Result: st.GetResult()})
+		steps = append(steps, storage.ReportStep{ID: uuid.New(), Number: int32(i + 1), Name: st.GetName(), Time: int32(st.GetTime()), Description: st.GetDescription(), Target: st.GetTarget(), Source: st.GetSource(), Result: st.GetResult()})
 	}
-	if err := s.repo.InsertReport(ctx, reportID, incidentID, tid, redRef, int32(pb.ReportStatus_REPORT_STATUS_PENDING), storage.SumStepTime(steps)); err != nil {
+	// time теперь unix timestamp момента отправки
+	if err := s.repo.InsertReport(ctx, reportID, incidentID, tid, redRef, int32(pb.ReportStatus_REPORT_STATUS_PENDING), int32(time.Now().Unix())); err != nil {
 		return nil, status.Errorf(codes.Internal, "insert report: %v", err)
 	}
 	if err := s.repo.InsertReportSteps(ctx, reportID, steps); err != nil {
@@ -198,12 +200,13 @@ func (s *PolygonServer) EditReport(ctx context.Context, req *pb.EditReportReques
 	}
 	steps := make([]storage.ReportStep, 0, len(req.GetSteps()))
 	for i, st := range req.GetSteps() {
-		steps = append(steps, storage.ReportStep{ID: uuid.New(), Number: int32(i + 1), Name: st.GetName(), Time: st.GetTime(), Description: st.GetDescription(), Target: st.GetTarget(), Source: st.GetSource(), Result: st.GetResult()})
+		steps = append(steps, storage.ReportStep{ID: uuid.New(), Number: int32(i + 1), Name: st.GetName(), Time: int32(st.GetTime()), Description: st.GetDescription(), Target: st.GetTarget(), Source: st.GetSource(), Result: st.GetResult()})
 	}
 	if err := s.repo.ReplaceReportSteps(ctx, reportID, steps); err != nil {
 		return nil, status.Errorf(codes.Internal, "replace: %v", err)
 	}
-	if err := s.repo.UpdateReportForEdit(ctx, reportID, int32(pb.ReportStatus_REPORT_STATUS_PENDING)); err != nil {
+	// При редактировании считаем отчёт новой версией: обновляем created_at и time
+	if err := s.repo.UpdateReportForEdit(ctx, reportID, int32(pb.ReportStatus_REPORT_STATUS_PENDING), int32(time.Now().Unix())); err != nil {
 		return nil, status.Errorf(codes.Internal, "status: %v", err)
 	}
 	rp2, err := s.repo.GetReport(ctx, reportID)

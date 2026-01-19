@@ -27,14 +27,24 @@ func (s *PolygonServer) GetTeams(ctx context.Context, _ *emptypb.Empty) (*pb.Get
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "team prizes: %v", err)
 	}
+	reportCounts, err := s.repo.ListTeamReportCounts(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "team report counts: %v", err)
+	}
 	resp := &pb.GetTeamsResponse{}
 
 	if s.usersAdminClient == nil {
 		userCache := map[string]*upb.User{}
 		for _, t := range list {
-			pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type)}
+			pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type), InitialPrize: t.InitialPrize}
 			if v, ok := prizes[t.ID]; ok {
-				pbTeam.PrizeTotal = v
+				pbTeam.PrizeTotal = v + t.InitialPrize
+			} else {
+				pbTeam.PrizeTotal = t.InitialPrize
+			}
+			if rc, ok := reportCounts[t.ID]; ok {
+				pbTeam.ReportsSubmitted = rc[0]
+				pbTeam.ReportsAccepted = rc[1]
 			}
 			if fines, err2 := s.repo.ListTeamFines(ctx, t.ID); err2 == nil {
 				for i := range fines {
@@ -82,9 +92,15 @@ func (s *PolygonServer) GetTeams(ctx context.Context, _ *emptypb.Empty) (*pb.Get
 		}
 	}
 	for _, t := range list {
-		pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type), Users: []*upb.User{}}
+		pbTeam := &pb.Team{Id: t.ID.String(), Name: t.Name, Type: pb.TeamType(t.Type), Users: []*upb.User{}, InitialPrize: t.InitialPrize}
 		if v, ok := prizes[t.ID]; ok {
-			pbTeam.PrizeTotal = v
+			pbTeam.PrizeTotal = v + t.InitialPrize
+		} else {
+			pbTeam.PrizeTotal = t.InitialPrize
+		}
+		if rc, ok := reportCounts[t.ID]; ok {
+			pbTeam.ReportsSubmitted = rc[0]
+			pbTeam.ReportsAccepted = rc[1]
 		}
 		if fines, err2 := s.repo.ListTeamFines(ctx, t.ID); err2 == nil {
 			for i := range fines {
@@ -108,11 +124,14 @@ func (s *PolygonServer) CreateTeam(ctx context.Context, req *pb.CreateTeamReques
 	if name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name required")
 	}
+	if req.GetInitialPrize() < 0 {
+		return nil, status.Error(codes.InvalidArgument, "initial_prize must be >= 0")
+	}
 	id := uuid.New()
-	if err := s.repo.CreateTeam(ctx, id, name, int32(req.GetType())); err != nil {
+	if err := s.repo.CreateTeam(ctx, id, name, int32(req.GetType()), req.GetInitialPrize()); err != nil {
 		return nil, status.Errorf(codes.Internal, "create: %v", err)
 	}
-	return &pb.Team{Id: id.String(), Name: name, Type: req.GetType()}, nil
+	return &pb.Team{Id: id.String(), Name: name, Type: req.GetType(), InitialPrize: req.GetInitialPrize(), PrizeTotal: req.GetInitialPrize()}, nil
 }
 func (s *PolygonServer) EditTeam(ctx context.Context, req *pb.EditTeamRequest) (*pb.Team, error) {
 	if req.GetId() == "" {
@@ -127,7 +146,15 @@ func (s *PolygonServer) EditTeam(ctx context.Context, req *pb.EditTeamRequest) (
 		v := int32(req.GetType())
 		tptr = &v
 	}
-	if err := s.repo.UpdateTeam(ctx, id, strings.TrimSpace(req.GetName()), tptr); err != nil {
+	var initialPrizePtr *int64
+	if req.InitialPrize != nil {
+		if req.GetInitialPrize() < 0 {
+			return nil, status.Error(codes.InvalidArgument, "initial_prize must be >= 0")
+		}
+		v := req.GetInitialPrize()
+		initialPrizePtr = &v
+	}
+	if err := s.repo.UpdateTeam(ctx, id, strings.TrimSpace(req.GetName()), tptr, initialPrizePtr); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, status.Error(codes.NotFound, "team not found")
 		}
@@ -137,7 +164,14 @@ func (s *PolygonServer) EditTeam(ctx context.Context, req *pb.EditTeamRequest) (
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get: %v", err)
 	}
-	return &pb.Team{Id: st.ID.String(), Name: st.Name, Type: pb.TeamType(st.Type)}, nil
+	prizes, _ := s.repo.ListTeamPrizes(ctx) // ignore error, best-effort
+	var prizeTotal int64
+	if v, ok := prizes[st.ID]; ok {
+		prizeTotal = v + st.InitialPrize
+	} else {
+		prizeTotal = st.InitialPrize
+	}
+	return &pb.Team{Id: st.ID.String(), Name: st.Name, Type: pb.TeamType(st.Type), InitialPrize: st.InitialPrize, PrizeTotal: prizeTotal}, nil
 }
 func (s *PolygonServer) DeleteTeam(ctx context.Context, req *pb.DeleteTeamRequest) (*emptypb.Empty, error) {
 	if req.GetId() == "" {
@@ -208,10 +242,22 @@ func (s *PolygonServer) GetUserTeam(ctx context.Context, req *pb.GetUserTeamRequ
 		}
 		return nil, status.Errorf(codes.Internal, "get: %v", err)
 	}
-	pbTeam := &pb.Team{Id: team.ID.String(), Name: team.Name, Type: pb.TeamType(team.Type)}
+	pbTeam := &pb.Team{Id: team.ID.String(), Name: team.Name, Type: pb.TeamType(team.Type), InitialPrize: team.InitialPrize}
 	if fines, err2 := s.repo.ListTeamFines(ctx, team.ID); err2 == nil {
 		for i := range fines {
 			pbTeam.Fines = append(pbTeam.Fines, toPBTeamFine(&fines[i]))
+		}
+	}
+	prizes, _ := s.repo.ListTeamPrizes(ctx)
+	if v, ok := prizes[team.ID]; ok {
+		pbTeam.PrizeTotal = v + team.InitialPrize
+	} else {
+		pbTeam.PrizeTotal = team.InitialPrize
+	}
+	if rcMap, err2 := s.repo.ListTeamReportCounts(ctx); err2 == nil {
+		if rc, ok := rcMap[team.ID]; ok {
+			pbTeam.ReportsSubmitted = rc[0]
+			pbTeam.ReportsAccepted = rc[1]
 		}
 	}
 	return &pb.GetUserTeamResponse{Team: pbTeam}, nil
@@ -222,9 +268,9 @@ func (s *PolygonServer) CreateTeamFine(ctx context.Context, req *pb.CreateTeamFi
 	if strings.TrimSpace(req.GetTeamId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "team_id required")
 	}
-	if req.GetAmount() <= 0 {
-		return nil, status.Error(codes.InvalidArgument, "amount must be > 0")
-	}
+	// if req.GetAmount() <= 0 {
+	// 	return nil, status.Error(codes.InvalidArgument, "amount must be > 0")
+	// }
 	if strings.TrimSpace(req.GetReason()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "reason required")
 	}

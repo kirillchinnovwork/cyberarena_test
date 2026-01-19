@@ -1,0 +1,11 @@
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum* ./
+COPY ../../api ../api
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /gateway ./cmd/gateway
+
+FROM alpine:3.19
+COPY --from=builder /gateway /gateway
+ENTRYPOINT ["/gateway"]

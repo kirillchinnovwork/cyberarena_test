@@ -58,6 +58,14 @@ func (s *PolygonServer) GetRedPolygons(ctx context.Context, _ *emptypb.Empty) (*
 			}
 		}
 	}
+	acceptedList, err := s.repo.ListAcceptedRedReports(ctx, allIncidentIDs)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "accepted red reports: %v", err)
+	}
+	acceptedMap := map[uuid.UUID]bool{}
+	for _, ar := range acceptedList {
+		acceptedMap[ar.IncidentID] = true
+	}
 	out := &pb.GetRedPolygonsResponse{}
 	for _, p := range polys {
 		pv := &pb.PolygonRedView{
@@ -71,6 +79,10 @@ func (s *PolygonServer) GetRedPolygons(ctx context.Context, _ *emptypb.Empty) (*
 				Id:          in.ID.String(),
 				Name:        in.Name,
 				Description: in.Description,
+			}
+			// Признак того, что уже есть принятый отчёт любой красной команды.
+			if acceptedMap[in.ID] {
+				iv.AlreadySolved = true
 			}
 			if in.BasePrize > 0 {
 				iv.RedPrize = in.BasePrize
@@ -187,7 +199,7 @@ func (s *PolygonServer) GetBluePolygon(ctx context.Context, _ *emptypb.Empty) (*
 			Name:              ar.IncidentName,
 			Description:       ar.IncidentDescription,
 			RedTeamReportId:   ar.ReportID.String(),
-			RedTeamReportTime: int32(ar.Time),
+			RedTeamReportTime: uint32(ar.Time),
 		}
 		if ar.BasePrize > 0 {
 			iv.RedPrize = ar.BasePrize
@@ -241,6 +253,19 @@ func (s *PolygonServer) GetRedIncidents(ctx context.Context, req *pb.GetRedIncid
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "incidents: %v", err)
 	}
+	// Build map of incidents having at least one accepted red report.
+	incIDs := make([]uuid.UUID, 0, len(incidents))
+	for _, in := range incidents {
+		incIDs = append(incIDs, in.ID)
+	}
+	acceptedList, err := s.repo.ListAcceptedRedReports(ctx, incIDs)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "accepted red reports: %v", err)
+	}
+	acceptedMap := map[uuid.UUID]bool{}
+	for _, ar := range acceptedList {
+		acceptedMap[ar.IncidentID] = true
+	}
 
 	out := &pb.GetRedIncidentsResponse{}
 	for _, in := range incidents {
@@ -248,6 +273,9 @@ func (s *PolygonServer) GetRedIncidents(ctx context.Context, req *pb.GetRedIncid
 			Id:          in.ID.String(),
 			Name:        in.Name,
 			Description: in.Description,
+		}
+		if acceptedMap[in.ID] {
+			iv.AlreadySolved = true
 		}
 		if in.BasePrize > 0 {
 			iv.RedPrize = in.BasePrize
@@ -336,7 +364,7 @@ func (s *PolygonServer) GetBlueIncidents(ctx context.Context, _ *pb.GetBlueIncid
 			Name:              ar.IncidentName,
 			Description:       ar.IncidentDescription,
 			RedTeamReportId:   ar.ReportID.String(),
-			RedTeamReportTime: int32(ar.Time),
+			RedTeamReportTime: uint32(ar.Time),
 		}
 		if ar.BasePrize > 0 {
 			iv.RedPrize = ar.BasePrize
@@ -555,7 +583,7 @@ func (s *PolygonServer) ListPolygons(ctx context.Context, _ *emptypb.Empty) (*pb
 								Id:          s.ID.String(),
 								Number:      uint32(s.Number),
 								Name:        s.Name,
-								Time:        s.Time,
+								Time:        uint32(s.Time),
 								Description: s.Description,
 								Target:      s.Target,
 								Source:      s.Source,
@@ -572,7 +600,7 @@ func (s *PolygonServer) ListPolygons(ctx context.Context, _ *emptypb.Empty) (*pb
 							IncidentName:    in.Name,
 							Team:            cached,
 							Steps:           pbSteps,
-							Time:            r.Time,
+							Time:            uint32(r.Time),
 							Status:          pb.ReportStatus(r.Status),
 							RejectionReason: r.RejectionReason,
 							RedTeamReportId: redRef,
